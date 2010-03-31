@@ -205,3 +205,11 @@ class DatastoreRedisTestCase(unittest.TestCase):
         self.assertEqual(set(['John Dowe', 'John Appleseed']),
                          set(['%s %s' % (e.first_name, e.last_name)
                           for e in query.run()]))
+
+        # Delete our entities.
+        employee.delete()
+        manager.delete()
+
+        # Our query results should now be empty.
+        query = Employee.all()
+        self.assertEqual([], list(query.run()))

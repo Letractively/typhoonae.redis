@@ -53,10 +53,11 @@ _DATASTORE_OPERATORS = {
     datastore_pb.Query_Filter.EQUAL:                 '==',
 }
 
-# Reserved Redis keys
-_NEXT_ID        = '%(app)s!NEXT_ID'
-_KIND_INDEX     = '%(app)s!%(kind)s'
-_PROPERTY_INDEX = '%(app)s!%(kind)s:%(prop)s:%(hash)s'
+# Reserved Redis keys and patterns
+_NEXT_ID              = '%(app)s!NEXT_ID'
+_KIND_INDEX           = '%(app)s!%(kind)s:KEYS'
+_KIND_INDEXES_PATTERN = '%(app)s!%(kind)s:*'
+_PROPERTY_INDEX       = '%(app)s!%(kind)s:%(prop)s:%(hash)s'
 
 
 class _StoredEntity(object):
@@ -328,13 +329,12 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
 
                 pipe = pipe.set(stored_key, entity.encoded_protobuf)
 
-                kind_index_key = _KIND_INDEX % {
-                    'app': self.__app_id, 'kind': last_path.type()}
+                kind = last_path.type()
+                kind_index = _KIND_INDEX % {'app': key.app(), 'kind': kind}
     
-                pipe.sadd(kind_index_key, stored_key)
+                pipe.sadd(kind_index, stored_key)
 
                 # Write indexes.
-                kind = last_path.type()
                 index_def = self.__indexes.get(kind)
 
                 if not index_def:
@@ -469,13 +469,35 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
         if delete_request.has_transaction():
             self.__ValidateTransaction(delete_request.transaction())
 
+        # Open a Redis pipeline to perform multiple commands at once.
+        pipe = self.__datastore.pipeline()
+
         for key in delete_request.key_list():
             self.__ValidateAppId(key.app())
-            rk = self._GetRedisKeyForKey(key)
-            self.__datastore.delete(rk)
+
+            stored_key = self._GetRedisKeyForKey(key)
 
             if delete_request.has_transaction():
-                del self.__tx_snapshot[rk]
+                del self.__tx_snapshot[stored_key]
+                continue
+
+            pipe = pipe.delete(stored_key)
+
+        pipe.execute()
+
+        # Update indexes
+        for key in delete_request.key_list():
+            kind = key.path().element_list()[-1].type()
+            pattern = _KIND_INDEXES_PATTERN % {'app': key.app(), 'kind': kind}
+            index_keys = self.__datastore.keys(pattern)
+            stored_key = self._GetRedisKeyForKey(key)
+
+            pipe = self.__datastore.pipeline()
+
+            for index in index_keys:
+                pipe = pipe.srem(index, stored_key)
+
+            pipe.execute()
 
     def _Dynamic_RunQuery(self, query, query_result):
         """Run given query.
