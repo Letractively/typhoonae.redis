@@ -1,0 +1,6 @@
+indexes:
+
+- kind: Employee
+  properties:
+  - name: first_name
+  - name: last_name
