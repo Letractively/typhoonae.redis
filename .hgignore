@@ -1,0 +1,18 @@
+syntax: glob
+
+*.egg-info
+*.pyc
+*.swp
+.installed.cfg
+
+
+syntax: regexp
+
+^bin/
+^develop-eggs/
+^doc/build/
+^downloads/
+^eggs/
+^parts/
+^src/redis
+^var/*
