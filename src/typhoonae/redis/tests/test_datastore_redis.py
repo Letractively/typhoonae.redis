@@ -80,7 +80,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
         self.assertNotEqual(None, self.stub)
 
     def testConnectionError(self):
-        """Ties to connect to wrong host and port."""
+        """Tries to connect to wrong host and port."""
 
         self.assertRaises(
             google.appengine.runtime.apiproxy_errors.ApplicationError,
@@ -202,6 +202,6 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         # Perform a very simple query.
         query = Employee.all()
-        self.assertEqual(['John Dowe', 'John Appleseed'],
-                         ['%s %s' % (e.first_name, e.last_name)
-                          for e in query.run()])
+        self.assertEqual(set(['John Dowe', 'John Appleseed']),
+                         set(['%s %s' % (e.first_name, e.last_name)
+                          for e in query.run()]))
