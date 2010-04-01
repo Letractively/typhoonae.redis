@@ -63,7 +63,7 @@ _PROPERTY_INDEX       = '%(app)s!%(kind)s:%(prop)s:%(hash)s'
 class _StoredEntity(object):
     """Entity wrapper.
 
-    Provides three variants of the same entity for different stub operations.
+    Provides three variants of the same entity for various stub operations.
     """
 
     def __init__(self, entity):
@@ -293,6 +293,47 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
             self.__entities_cache[app_kind] = {}
         self.__entities_cache[app_kind][key] = _StoredEntity(entity)
 
+    def _IndexEntity(self, entity):
+        """Indexes a given entity.
+
+        Args:
+            entity: A _StoredEntity instance.
+        """
+        assert type(entity) == _StoredEntity
+
+        key = entity.protobuf.key()
+        app = key.app()
+
+        self.__ValidateAppId(app)
+
+        kind = key.path().element_list()[-1].type()
+
+        index_def = self.__indexes.get(kind)
+        if not index_def:
+            return
+
+        pattern = _KIND_INDEXES_PATTERN % {'app': app, 'kind': kind}
+        index_keys = self.__datastore.keys(pattern)
+
+        stored_key = self._GetRedisKeyForKey(key)
+        pipe = self.__datastore.pipeline()
+
+        for index in index_keys:
+            pipe = pipe.srem(index, stored_key)
+
+        kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
+    
+        pipe = pipe.sadd(kind_index, stored_key)
+
+        for prop in index_def.property_list():
+            name = prop.name()
+            value = entity.native[name]
+            digest = hashlib.md5(value).hexdigest()
+            key_info = dict(app=app, kind=kind, prop=name, hash=digest)
+            pipe = pipe.sadd(_PROPERTY_INDEX % key_info, stored_key)
+
+        pipe.execute()
+
     def _WriteEntities(self):
         """Write stored entities to Redis backend.
 
@@ -306,6 +347,8 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
             self.__datastore.incr(self.__next_id_key, num_entities))
         self.__next_id = reserved_id - num_entities
         self.__id_lock.release()
+
+        index_entities = []
 
         # Open a Redis pipeline to perform multiple commands at once.
         pipe = self.__datastore.pipeline()
@@ -328,31 +371,16 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
 
                 pipe = pipe.set(stored_key, entity.encoded_protobuf)
 
-                kind = last_path.type()
-                kind_index = _KIND_INDEX % {'app': key.app(), 'kind': kind}
-    
-                pipe.sadd(kind_index, stored_key)
+                index_entities.append(entity)
 
-                # Write indexes.
-                index_def = self.__indexes.get(kind)
+        if pipe.execute():
+            for entity in index_entities:
+                self._IndexEntity(entity)
 
-                if not index_def:
-                    continue
-
-                for prop in index_def.property_list():
-                    name = prop.name()
-                    value = entity.native[name]
-                    digest = hashlib.md5(value).hexdigest()
-                    index_key_dict = dict(
-                        app=self.__app_id, kind=kind, prop=name, hash=digest)
-                    pipe.sadd(_PROPERTY_INDEX % index_key_dict, stored_key)
-
-        pipe.execute()
-
-        # Flush our entities cache.
-        self.__entities_cache_lock.acquire()
-        self.__entities_cache = {}
-        self.__entities_cache_lock.release()
+            # Flush our entities cache.
+            self.__entities_cache_lock.acquire()
+            self.__entities_cache = {}
+            self.__entities_cache_lock.release()
 
     def MakeSyncCall(self, service, call, request, response):
         """The main RPC entry point. service must be 'datastore_v3'."""
