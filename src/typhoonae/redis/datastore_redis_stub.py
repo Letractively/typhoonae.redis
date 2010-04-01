@@ -308,14 +308,11 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
 
         kind = key.path().element_list()[-1].type()
 
-        index_def = self.__indexes.get(kind)
-        if not index_def:
-            return
-
         pattern = _KIND_INDEXES_PATTERN % {'app': app, 'kind': kind}
         index_keys = self.__datastore.keys(pattern)
 
         stored_key = self._GetRedisKeyForKey(key)
+
         pipe = self.__datastore.pipeline()
 
         for index in index_keys:
@@ -324,6 +321,11 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
         kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
     
         pipe = pipe.sadd(kind_index, stored_key)
+
+        index_def = self.__indexes.get(kind)
+        if not index_def:
+            pipe.execute()
+            return
 
         for prop in index_def.property_list():
             name = prop.name()
