@@ -4,3 +4,9 @@ indexes:
   properties:
   - name: first_name
   - name: last_name
+
+- kind: Artifact
+  properties:
+  - name: description
+  - name: age
+    direction: desc

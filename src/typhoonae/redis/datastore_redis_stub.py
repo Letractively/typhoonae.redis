@@ -293,6 +293,19 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
             self.__entities_cache[app_kind] = {}
         self.__entities_cache[app_kind][key] = _StoredEntity(entity)
 
+    @classmethod
+    def _GetRedisValueForValue(cls, value):
+        """Convert given value.
+
+        Args:
+            value: A Python value.
+
+        Returns:
+            A string representation of the above Python value.
+        """
+
+        return str(value)
+
     def _IndexEntity(self, entity):
         """Indexes a given entity.
 
@@ -329,7 +342,7 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
 
         for prop in index_def.property_list():
             name = prop.name()
-            value = entity.native[name]
+            value = self._GetRedisValueForValue(entity.native[name])
             digest = hashlib.md5(value).hexdigest()
             key_info = dict(app=app, kind=kind, prop=name, hash=digest)
             pipe = pipe.sadd(_PROPERTY_INDEX % key_info, stored_key)

@@ -115,11 +115,11 @@ class DatastoreRedisTestCase(unittest.TestCase):
         """Inititalizes an entity_pb.Reference from a Redis key."""
 
         key = self.stub._GetKeyForRedisKey(
-            u'test!Foo\x08\t0000000001/Bar\x08bar')
+            u'test!Foo\x08\t0000000002/Bar\x08bar')
         
         self.assertEqual(
             google.appengine.api.datastore_types.Key.from_path(
-                u'Foo', 1, u'Bar', u'bar', _app=u'test'),
+                u'Foo', 2, u'Bar', u'bar', _app=u'test'),
             key)
 
     def test_GetRedisKeyForKey(self):
@@ -223,3 +223,16 @@ class DatastoreRedisTestCase(unittest.TestCase):
         # Our query results should now be empty.
         query = Employee.all()
         self.assertEqual([], list(query.run()))
+
+    def testQueryWithFilter(self):
+        """Tries queries with filters."""
+
+        class Artifact(db.Model):
+            description = db.StringProperty(required=True)
+            age = db.IntegerProperty()
+
+        vase = Artifact(description="Mycenaean stirrup vase.", age=3300)
+        vase.put()
+
+        helmet = Artifact(description="Spartan full size helmet", age=2400)
+        helmet.put()
