@@ -317,8 +317,7 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
                 entity = entities[key]
 
                 last_path = key.path().element_list()[-1]
-
-                if last_path.has_id():
+                if last_path.id() == 0 and not last_path.has_name():
                     # Update sequential integer ID.
                     self.__id_lock.acquire()
                     last_path.set_id(self.__next_id)
@@ -403,11 +402,6 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
 
             last_path = clone.key().path().element_list()[-1]
             if last_path.id() == 0 and not last_path.has_name():
-                self.__id_lock.acquire()
-                last_path.set_id(self.__next_id)
-                self.__next_id += 1
-                self.__id_lock.release()
-
                 assert clone.entity_group().element_size() == 0
                 group = clone.mutable_entity_group()
                 root = clone.key().path().element(0)
