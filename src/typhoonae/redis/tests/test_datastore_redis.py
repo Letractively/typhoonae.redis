@@ -231,8 +231,26 @@ class DatastoreRedisTestCase(unittest.TestCase):
             description = db.StringProperty(required=True)
             age = db.IntegerProperty()
 
-        vase = Artifact(description="Mycenaean stirrup vase.", age=3300)
+        vase = Artifact(description="Mycenaean stirrup vase", age=3300)
         vase.put()
 
         helmet = Artifact(description="Spartan full size helmet", age=2400)
         helmet.put()
+
+        query = Artifact.all().filter('age =', 2400)
+
+        self.assertEqual(
+            ['Spartan full size helmet'],
+            [artifact.description for artifact in query.run()])
+
+        query = db.GqlQuery("SELECT * FROM Artifact WHERE age = :1", 3300)
+
+        self.assertEqual(
+            ['Mycenaean stirrup vase'],
+            [artifact.description for artifact in query.run()])
+
+        query = Artifact.all().filter('age =', 2400).filter('age =', 3300)
+
+        self.assertEqual(
+            set(['Spartan full size helmet', 'Mycenaean stirrup vase']),
+            set([artifact.description for artifact in query.run()]))

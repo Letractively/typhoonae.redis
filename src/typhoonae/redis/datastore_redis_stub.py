@@ -22,6 +22,7 @@ Unlike the file stub's implementation it is suitable for larger production
 data and handles concurrency.
 """
 
+from google.appengine.api import datastore_types
 from google.appengine.datastore import datastore_index
 from google.appengine.datastore import datastore_pb
 from google.appengine.datastore import entity_pb
@@ -29,7 +30,6 @@ from google.appengine.runtime import apiproxy_errors
 
 import google.appengine.api.apiproxy_stub
 import google.appengine.api.datastore_errors
-import google.appengine.api.datastore_types
 import hashlib
 import logging
 import redis
@@ -232,8 +232,7 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
         Returns:
             Encoded app and kind.
         """
-        app = google.appengine.api.datastore_types.EncodeAppIdNamespace(
-            key.app(), key.name_space())
+        app = datastore_types.EncodeAppIdNamespace(key.app(), key.name_space())
 
         return '\x08'.join((app, key.path().element_list()[-1].type()))
 
@@ -278,8 +277,7 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
                 return int(value[1:])
             return value
 
-        return google.appengine.api.datastore_types.Key.from_path(
-            *[from_db(a) for a in items])
+        return datastore_types.Key.from_path(*[from_db(a) for a in items])
 
     def _StoreEntity(self, entity):
         """Store the given entity.
@@ -574,13 +572,38 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
         (filters, orders) = datastore_index.Normalize(
             query.filter_list(), query.order_list())
 
-        result = None
+        result = []
 
         if not filters and not orders:
             pipe = self.__datastore.pipeline()
-            pipe = pipe.sort(
-                _KIND_INDEX % {'app': app_id, 'kind': query.kind()}, get='*')
-            result = pipe.execute().pop()
+            key_info = dict(app=app_id, kind=query.kind())
+            pipe = pipe.sort(_KIND_INDEX % key_info, get='*')
+            entities_pb = pipe.execute().pop()
+            if entities_pb:
+                result.extend(entities_pb)
+
+        for filt in filters:
+            assert filt.op() != datastore_pb.Query_Filter.IN
+
+            prop = filt.property(0).name().decode('utf-8')
+            op = _DATASTORE_OPERATORS[filt.op()]
+
+            filter_prop_val_list = [
+                (p.name(), datastore_types.FromPropertyPb(p))
+                for p in filt.property_list()]
+
+            pipe = self.__datastore.pipeline()
+
+            for prop, val in filter_prop_val_list:
+                digest = hashlib.md5(
+                    self._GetRedisValueForValue(val)).hexdigest()
+                key_info = dict(
+                    app=app_id, kind=query.kind(), prop=prop, hash=digest)
+                pipe = pipe.sort(_PROPERTY_INDEX % key_info, get='*')
+
+            entities_pb = pipe.execute().pop()
+            if entities_pb:
+                result.extend(entities_pb)
 
         if result and not query.keys_only():
             query_result.result_list().extend(
