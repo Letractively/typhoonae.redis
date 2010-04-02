@@ -54,10 +54,11 @@ _DATASTORE_OPERATORS = {
 }
 
 # Reserved Redis keys and patterns
-_NEXT_ID              = '%(app)s!NEXT_ID'
-_KIND_INDEX           = '%(app)s!%(kind)s:KEYS'
-_KIND_INDEXES_PATTERN = '%(app)s!%(kind)s:*'
-_PROPERTY_INDEX       = '%(app)s!%(kind)s:%(prop)s:%(encval)s'
+_NEXT_ID         = '%(app)s!\vNEXT_ID'
+_KIND_INDEX      = '%(app)s!%(kind)s:\vKEYS'
+_KIND_INDEX_KEYS = '%(app)s!%(kind)s:\vINDEX_KEYS'
+_PROPERTY_INDEX  = '%(app)s!%(kind)s:%(prop)s:%(encval)s:\vKEYS'
+_PROPERTY_VALUE  = '%(key)s:%(prop)s'
 
 
 class _StoredEntity(object):
@@ -319,8 +320,8 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
 
         kind = key.path().element_list()[-1].type()
 
-        pattern = _KIND_INDEXES_PATTERN % {'app': app, 'kind': kind}
-        index_keys = self.__datastore.keys(pattern)
+        kind_indexes = _KIND_INDEX_KEYS % {'app': app, 'kind': kind}
+        index_keys = self.__datastore.sort(kind_indexes) or []
 
         stored_key = self._GetRedisKeyForKey(key)
 
@@ -333,6 +334,8 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
     
         pipe = pipe.sadd(kind_index, stored_key)
 
+        pipe = pipe.sadd(kind_indexes, kind_index)
+
         index_def = self.__indexes.get(kind)
         if not index_def:
             pipe.execute()
@@ -342,11 +345,47 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
             name = prop.name()
             value = self._GetRedisValueForValue(entity.native[name])
             digest = hashlib.md5(value).hexdigest()
-            key_info = dict(app=app, kind=kind, prop=name, encval=digest)
-            pipe = pipe.sadd(_PROPERTY_INDEX % key_info, stored_key)
-            pipe = pipe.set('%s:%s' % (stored_key, name), value)
 
-        pipe.execute()
+            prop_index = _PROPERTY_INDEX % {
+                'app': app, 'kind': kind, 'prop': name, 'encval': digest}
+            pipe = pipe.sadd(prop_index, stored_key)
+            pipe = pipe.sadd(kind_indexes, prop_index)
+
+            prop_key = _PROPERTY_VALUE % {'key': stored_key, 'prop': name}
+            pipe = pipe.set(prop_key, value)
+            pipe = pipe.sadd(kind_indexes, prop_key)
+
+        if not pipe.execute():
+            return
+
+        self._CleanupPropertyIndexes(kind_indexes, index_keys)
+
+
+    def _CleanupPropertyIndexes(self, kind_indexes_key, index_keys):
+        """Remove deleted property indexes from kind indexes set.
+
+        Args:
+            kind_indexes_key: Redis key which holds keys of indexes for a kind.
+            index_keys: Redis keys for indexes to remove if empty.
+
+        Returns:
+            Boolean whether clening property indexes succeeded.
+        """
+        pipe = self.__datastore.pipeline()
+
+        for index in index_keys:
+            if index.endswith(':\vKEYS'):
+                pipe = pipe.exists(index)
+
+        indexes_to_remove = zip(index_keys, pipe.execute())
+
+        pipe = self.__datastore.pipeline()
+
+        for index, exists in indexes_to_remove:
+            if not exists:
+                pipe = pipe.srem(kind_indexes_key, index)
+
+        return False not in pipe.execute()
 
     def _WriteEntities(self):
         """Write stored entities to Redis backend.
@@ -387,7 +426,8 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
 
                 index_entities.append(entity)
 
-        if pipe.execute():
+        success = pipe.execute()
+        if not False in success:
             for entity in index_entities:
                 self._IndexEntity(entity)
 
@@ -519,7 +559,7 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
 
             pipe = pipe.delete(stored_key)
 
-        if not pipe.execute():
+        if False in pipe.execute():
             return
 
         # Update indexes
@@ -527,19 +567,21 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
             kind = key.path().element_list()[-1].type()
             stored_key = self._GetRedisKeyForKey(key)
 
-            index_keys = self.__datastore.keys(
-                _KIND_INDEXES_PATTERN % {'app': key.app(), 'kind': kind})
-            val_index_keys = self.__datastore.keys('%s:*' % stored_key)
+            kind_indexes = _KIND_INDEX_KEYS % {'app': key.app(), 'kind': kind}
+            index_keys = self.__datastore.sort(kind_indexes) or []
 
             pipe = self.__datastore.pipeline()
 
             for index in index_keys:
-                pipe = pipe.srem(index, stored_key)
-
-            for val in val_index_keys:
-                pipe = pipe.delete(val)
+                if index.startswith(stored_key):
+                    pipe = pipe.delete(index)
+                    pipe = pipe.srem(kind_indexes, index)
+                else:
+                    pipe = pipe.srem(index, stored_key)
 
             pipe.execute()
+
+            self._CleanupPropertyIndexes(kind_indexes, index_keys)
 
     def _Dynamic_RunQuery(self, query, query_result):
         """Run given query.
