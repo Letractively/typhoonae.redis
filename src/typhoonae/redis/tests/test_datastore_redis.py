@@ -262,3 +262,10 @@ class DatastoreRedisTestCase(unittest.TestCase):
         self.assertEqual(
             ['Spartan full size helmet'],
             [artifact.description for artifact in query.run()])
+
+        helmet.age = 2300
+        helmet.put()
+
+        query = Artifact.all().filter('age =', 2300).filter('age =', 2400)
+
+        self.assertEqual([2300], [artifact.age for artifact in query.run()])
