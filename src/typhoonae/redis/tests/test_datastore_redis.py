@@ -254,3 +254,11 @@ class DatastoreRedisTestCase(unittest.TestCase):
         self.assertEqual(
             set(['Spartan full size helmet', 'Mycenaean stirrup vase']),
             set([artifact.description for artifact in query.run()]))
+
+        vase.delete()
+
+        query = Artifact.all().filter('age =', 2400).filter('age =', 3300)
+
+        self.assertEqual(
+            ['Spartan full size helmet'],
+            [artifact.description for artifact in query.run()])

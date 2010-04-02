@@ -57,7 +57,7 @@ _DATASTORE_OPERATORS = {
 _NEXT_ID              = '%(app)s!NEXT_ID'
 _KIND_INDEX           = '%(app)s!%(kind)s:KEYS'
 _KIND_INDEXES_PATTERN = '%(app)s!%(kind)s:*'
-_PROPERTY_INDEX       = '%(app)s!%(kind)s:%(prop)s:%(hash)s'
+_PROPERTY_INDEX       = '%(app)s!%(kind)s:%(prop)s:%(encval)s'
 
 
 class _StoredEntity(object):
@@ -342,8 +342,9 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
             name = prop.name()
             value = self._GetRedisValueForValue(entity.native[name])
             digest = hashlib.md5(value).hexdigest()
-            key_info = dict(app=app, kind=kind, prop=name, hash=digest)
+            key_info = dict(app=app, kind=kind, prop=name, encval=digest)
             pipe = pipe.sadd(_PROPERTY_INDEX % key_info, stored_key)
+            pipe = pipe.set('%s:%s' % (stored_key, name), value)
 
         pipe.execute()
 
@@ -518,19 +519,25 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
 
             pipe = pipe.delete(stored_key)
 
-        pipe.execute()
+        if not pipe.execute():
+            return
 
         # Update indexes
         for key in delete_request.key_list():
             kind = key.path().element_list()[-1].type()
-            pattern = _KIND_INDEXES_PATTERN % {'app': key.app(), 'kind': kind}
-            index_keys = self.__datastore.keys(pattern)
             stored_key = self._GetRedisKeyForKey(key)
+
+            index_keys = self.__datastore.keys(
+                _KIND_INDEXES_PATTERN % {'app': key.app(), 'kind': kind})
+            val_index_keys = self.__datastore.keys('%s:*' % stored_key)
 
             pipe = self.__datastore.pipeline()
 
             for index in index_keys:
                 pipe = pipe.srem(index, stored_key)
+
+            for val in val_index_keys:
+                pipe = pipe.delete(val)
 
             pipe.execute()
 
@@ -588,17 +595,17 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
             prop = filt.property(0).name().decode('utf-8')
             op = _DATASTORE_OPERATORS[filt.op()]
 
-            filter_prop_val_list = [
+            property_list = [
                 (p.name(), datastore_types.FromPropertyPb(p))
                 for p in filt.property_list()]
 
             pipe = self.__datastore.pipeline()
 
-            for prop, val in filter_prop_val_list:
+            for prop, val in property_list:
                 digest = hashlib.md5(
                     self._GetRedisValueForValue(val)).hexdigest()
                 key_info = dict(
-                    app=app_id, kind=query.kind(), prop=prop, hash=digest)
+                    app=app_id, kind=query.kind(), prop=prop, encval=digest)
                 pipe = pipe.sort(_PROPERTY_INDEX % key_info, get='*')
 
             entities_pb = pipe.execute().pop()
