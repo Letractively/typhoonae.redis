@@ -10,3 +10,7 @@ indexes:
   - name: description
   - name: age
     direction: desc
+
+- kind: Jedi
+  properties:
+  - name: name

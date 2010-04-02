@@ -25,6 +25,8 @@ import google.appengine.api.datastore_types
 import google.appengine.datastore.entity_pb
 import google.appengine.runtime.apiproxy_errors
 import os
+import time
+import threading
 import typhoonae.redis.datastore_redis_stub
 import unittest
 
@@ -269,3 +271,38 @@ class DatastoreRedisTestCase(unittest.TestCase):
         query = Artifact.all().filter('age =', 2300).filter('age =', 2400)
 
         self.assertEqual([2300], [artifact.age for artifact in query.run()])
+
+    def testTransactions(self):
+        """Puts, gets and deletes enitites in a transaction."""
+
+        class Counter(db.Model):
+            value = db.IntegerProperty()
+
+        counter = Counter(key_name='counter', value=0)
+        counter.put()
+
+        del counter
+
+        class Incrementer(threading.Thread):
+            def run(self):
+                def tx():
+                    counter = Counter.get_by_key_name('counter')
+                    counter.value += 1
+                    counter.put()
+                for i in range(100):
+                    db.run_in_transaction(tx)
+
+        start_time = time.time()
+
+        incrementers = []
+        for i in range(10):
+            incrementers.append(Incrementer())
+            incrementers[i].start()
+
+        for incr in incrementers:
+            incr.join()
+
+        sec = time.time() - start_time
+
+        counter = Counter.get_by_key_name('counter')
+        self.assertEqual(1000, counter.value)

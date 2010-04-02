@@ -147,17 +147,23 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
             self.__datastore.incr(self.__next_id_key)
         self.__id_lock = threading.Lock()
 
-        # Transaction handles and snapshot.
-        self.__tx_handles = set()
+        # Transaction set, snapshot and handles.
+        self.__transactions = set()
+        self.__tx_lock = threading.Lock()
         self.__tx_snapshot = {}
+        self.__tx_actions = []
+        self.__next_tx_handle = 1
+        self.__tx_handle_lock = threading.Lock()
 
     def Clear(self):
         """Clears all Redis databases of the current application."""
 
         self.__datastore.flushall()
         self.__next_id = 1
-        self.__tx_handles = set()
+        self.__transactions = set()
         self.__tx_snapshot = {}
+        self.__tx_actions = []
+        self.__next_tx_handle = 1
         self.__entities_cache = {}
 
     def __ValidateAppId(self, app_id):
@@ -204,7 +210,7 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
         """
         assert isinstance(tx, datastore_pb.Transaction)
         self.__ValidateAppId(tx.app())
-        if tx not in self.__tx_handles:
+        if tx not in self.__transactions:
             raise apiproxy_errors.ApplicationError(
                 datastore_pb.Error.BAD_REQUEST, 'Transaction %s not found' % tx)
 
@@ -393,13 +399,20 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
         Uses a Redis Transaction.
         """
 
-        # Allocate integer ID range.
-        self.__id_lock.acquire()
-        num_entities = len(self.__entities_cache.keys())
-        reserved_id = int(
-            self.__datastore.incr(self.__next_id_key, num_entities))
-        self.__next_id = reserved_id - num_entities
-        self.__id_lock.release()
+        allocate_ids = 0
+        for app_kind in self.__entities_cache:
+            for key in self.__entities_cache[app_kind]:
+                last_path = key.path().element_list()[-1]
+                if last_path.id() == 0 and not last_path.has_name():
+                    allocate_ids += 1
+
+        if allocate_ids:
+            # Allocate integer ID range.
+            self.__id_lock.acquire()
+            reserved_id = int(
+                self.__datastore.incr(self.__next_id_key, allocate_ids))
+            self.__next_id = reserved_id - allocate_ids
+            self.__id_lock.release()
 
         index_entities = []
 
@@ -514,24 +527,18 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
 
         if get_request.has_transaction():
             self.__ValidateTransaction(get_request.transaction())
-            entities = self.__tx_snapshot
-        else:
-            entities = self.__datastore
 
         for key in get_request.key_list():
             self.__ValidateAppId(key.app())
 
             group = get_response.add_entity()
-            data = entities.get(self._GetRedisKeyForKey(key))
+            data = self.__datastore.get(self._GetRedisKeyForKey(key))
 
             if data is None:
                 continue
 
-            if get_request.has_transaction():
-                entity = data
-            else:
-                entity = entity_pb.EntityProto()
-                entity.ParseFromString(data)
+            entity = entity_pb.EntityProto()
+            entity.ParseFromString(data)
             group.mutable_entity().CopyFrom(entity)
 
     def _Dynamic_Delete(self, delete_request, delete_response):
@@ -554,7 +561,7 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
             stored_key = self._GetRedisKeyForKey(key)
 
             if delete_request.has_transaction():
-                del self.__tx_snapshot[stored_key]
+                del self.__tx_snapshot[key.app()][key]
                 continue
 
             pipe = pipe.delete(stored_key)
@@ -671,7 +678,29 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
         """ """
 
     def _Dynamic_BeginTransaction(self, request, transaction):
-        """ """
+        """Begin a transaction.
+
+        Args:
+            request: A datastore_pb.BeginTransactionRequest.
+            transaction: A datastore_pb.BeginTransactionRequest instance.
+        """
+        self.__ValidateAppId(request.app())
+
+        self.__tx_handle_lock.acquire()
+        handle = self.__next_tx_handle
+        self.__next_tx_handle += 1
+        self.__tx_handle_lock.release()
+
+        transaction.set_app(request.app())
+        transaction.set_handle(handle)
+        assert transaction not in self.__transactions
+        self.__transactions.add(transaction)
+
+        self.__tx_lock.acquire()
+        snapshot = [(app_kind, dict(entities))
+                    for app_kind, entities in self.__entities_cache.items()]
+        self.__tx_snapshot = dict(snapshot)
+        self.__tx_actions = []
 
     def _Dynamic_AddActions(self, request, _):
         """Associates the creation of one or more tasks with a transaction.
@@ -682,8 +711,32 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
                 comitted.
         """
 
-    def _Dynamic_Commit(self, transaction, transaction_response):
-        """ """
+    def _Dynamic_Commit(self, transaction, response):
+        """Commit a transaction.
+
+        Args:
+            transaction: A datastore_pb.Transaction instance. 
+            response: A datastore_pb.CommitResponse instance.
+        """
+        self.__ValidateTransaction(transaction)
+
+        self.__tx_snapshot = {}
+        try:
+            self._WriteEntities()
+
+            for action in self.__tx_actions:
+                try:
+                    apiproxy_stub_map.MakeSyncCall(
+                        'taskqueue', 'Add', action, api_base_pb.VoidProto())
+                except apiproxy_errors.ApplicationError, e:
+                    logging.warning(
+                        'Transactional task %s has been dropped, %s', action, e)
+                    pass
+
+        finally:
+            self.__tx_actions = []
+            self.__transactions.remove(transaction)
+            self.__tx_lock.release()
 
     def _Dynamic_Rollback(self, transaction, transaction_response):
         """ """
