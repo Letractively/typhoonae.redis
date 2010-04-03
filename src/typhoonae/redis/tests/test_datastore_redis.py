@@ -283,26 +283,13 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         del counter
 
-        class Incrementer(threading.Thread):
-            def run(self):
-                def tx():
-                    counter = Counter.get_by_key_name('counter')
-                    counter.value += 1
-                    counter.put()
-                for i in range(100):
-                    db.run_in_transaction(tx)
+        def tx():
+            c = Counter.get_by_key_name('counter')
+            c.value += 1
+            c.put()
 
-        start_time = time.time()
-
-        incrementers = []
-        for i in range(10):
-            incrementers.append(Incrementer())
-            incrementers[i].start()
-
-        for incr in incrementers:
-            incr.join()
-
-        sec = time.time() - start_time
+        for i in range(1000):
+            db.run_in_transaction(tx)
 
         counter = Counter.get_by_key_name('counter')
         self.assertEqual(1000, counter.value)

@@ -149,8 +149,6 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
 
         # Transaction set, snapshot and handles.
         self.__transactions = set()
-        self.__tx_lock = threading.Lock()
-        self.__tx_snapshot = {}
         self.__tx_actions = []
         self.__next_tx_handle = 1
         self.__tx_handle_lock = threading.Lock()
@@ -158,10 +156,14 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
     def Clear(self):
         """Clears all Redis databases of the current application."""
 
-        self.__datastore.flushall()
+        keys = self.__datastore.keys('%s!*' % self.__app_id)
+        pipe = self.__datastore.pipeline()
+        for key in keys:
+            pipe = pipe.delete(key)
+        pipe.execute()
+
         self.__next_id = 1
         self.__transactions = set()
-        self.__tx_snapshot = {}
         self.__tx_actions = []
         self.__next_tx_handle = 1
         self.__entities_cache = {}
@@ -561,7 +563,7 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
             stored_key = self._GetRedisKeyForKey(key)
 
             if delete_request.has_transaction():
-                del self.__tx_snapshot[key.app()][key]
+                del self.__entities_cache[key.app()][key]
                 continue
 
             pipe = pipe.delete(stored_key)
@@ -604,9 +606,6 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
                 raise apiproxy_errors.ApplicationError(
                     datastore_pb.Error.BAD_REQUEST,
                     'Only ancestor queries are allowed inside transactions.')
-            entities = self.__tx_snapshot
-        else:
-            entities = self.__entities_cache
 
         app_id = query.app()
         namespace = query.name_space()
@@ -696,10 +695,6 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
         assert transaction not in self.__transactions
         self.__transactions.add(transaction)
 
-        self.__tx_lock.acquire()
-        snapshot = [(app_kind, dict(entities))
-                    for app_kind, entities in self.__entities_cache.items()]
-        self.__tx_snapshot = dict(snapshot)
         self.__tx_actions = []
 
     def _Dynamic_AddActions(self, request, _):
@@ -720,7 +715,6 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
         """
         self.__ValidateTransaction(transaction)
 
-        self.__tx_snapshot = {}
         try:
             self._WriteEntities()
 
@@ -736,7 +730,6 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
         finally:
             self.__tx_actions = []
             self.__transactions.remove(transaction)
-            self.__tx_lock.release()
 
     def _Dynamic_Rollback(self, transaction, transaction_response):
         """ """
