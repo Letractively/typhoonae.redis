@@ -335,7 +335,7 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
 
         pipe = self.__datastore.pipeline()
 
-        for index in index_keys:
+        for index in [k for k in index_keys if k.endswith(':\vKEYS')]:
             pipe = pipe.srem(index, stored_key)
 
         kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
@@ -363,8 +363,7 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
             pipe = pipe.set(prop_key, value)
             pipe = pipe.sadd(kind_indexes, prop_key)
 
-        if not pipe.execute():
-            return
+        pipe.execute()
 
         self._CleanupPropertyIndexes(kind_indexes, index_keys)
 
