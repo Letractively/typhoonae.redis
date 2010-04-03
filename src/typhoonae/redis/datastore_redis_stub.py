@@ -22,14 +22,15 @@ Unlike the file stub's implementation it is suitable for larger production
 data and handles concurrency.
 """
 
+from google.appengine.api import apiproxy_stub
+from google.appengine.api import datastore
+from google.appengine.api import datastore_errors
 from google.appengine.api import datastore_types
 from google.appengine.datastore import datastore_index
 from google.appengine.datastore import datastore_pb
 from google.appengine.datastore import entity_pb
 from google.appengine.runtime import apiproxy_errors
 
-import google.appengine.api.apiproxy_stub
-import google.appengine.api.datastore_errors
 import hashlib
 import logging
 import redis
@@ -91,10 +92,10 @@ class _StoredEntity(object):
     def native(self):
         """Return datastore.Entity instance."""
 
-        return google.appengine.api.datastore.Entity._FromPb(self.__protobuf)
+        return datastore.Entity._FromPb(self.__protobuf)
 
 
-class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
+class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
     """Persistent stub for the Python datastore API.
 
     Uses Redis as backend.
@@ -179,7 +180,7 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
         """
         assert app_id
         if app_id != self.__app_id:
-            raise google.appengine.api.datastore_errors.BadRequestError(
+            raise datastore_errors.BadRequestError(
                 'app %s cannot access app %s\'s data' % (self.__app_id, app_id))
 
     def __ValidateKey(self, key):
@@ -197,7 +198,7 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
 
         for elem in key.path().element_list():
             if elem.has_id() == elem.has_name():
-                raise google.appengine.api.datastore_errors.BadRequestError(
+                raise datastore_errors.BadRequestError(
                     'each key path element should have id or name but not '
                     'both: %r' % key)
 
@@ -323,10 +324,9 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
 
         key = entity.protobuf.key()
         app = key.app()
+        kind = key.path().element_list()[-1].type()
 
         self.__ValidateAppId(app)
-
-        kind = key.path().element_list()[-1].type()
 
         kind_indexes = _KIND_INDEX_KEYS % {'app': app, 'kind': kind}
         index_keys = self.__datastore.sort(kind_indexes) or []
@@ -339,9 +339,7 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
             pipe = pipe.srem(index, stored_key)
 
         kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
-    
         pipe = pipe.sadd(kind_index, stored_key)
-
         pipe = pipe.sadd(kind_indexes, kind_index)
 
         index_def = self.__indexes.get(kind)
@@ -366,7 +364,6 @@ class DatastoreRedisStub(google.appengine.api.apiproxy_stub.APIProxyStub):
         pipe.execute()
 
         self._CleanupPropertyIndexes(kind_indexes, index_keys)
-
 
     def _CleanupPropertyIndexes(self, kind_indexes_key, index_keys):
         """Remove deleted property indexes from kind indexes set.
