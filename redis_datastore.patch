@@ -1,6 +1,6 @@
 diff -Naur a/dev_appserver.py b/dev_appserver.py
 --- a/dev_appserver.py	2010-03-23 00:34:38.000000000 +0100
-+++ b/dev_appserver.py	2010-04-04 01:23:51.000000000 +0200
++++ b/dev_appserver.py	2010-04-04 02:50:37.000000000 +0200
 @@ -43,6 +43,8 @@
    os.path.join(DIR_PATH, 'lib', 'ipaddr'),
    os.path.join(DIR_PATH, 'lib', 'webob'),
@@ -12,7 +12,16 @@ diff -Naur a/dev_appserver.py b/dev_appserver.py
  SCRIPT_EXCEPTIONS = {
 diff -Naur a/google/appengine/tools/dev_appserver.py b/google/appengine/tools/dev_appserver.py
 --- a/google/appengine/tools/dev_appserver.py	2010-03-23 00:34:48.000000000 +0100
-+++ b/google/appengine/tools/dev_appserver.py	2010-04-04 01:23:18.000000000 +0200
++++ b/google/appengine/tools/dev_appserver.py	2010-04-04 10:57:50.000000000 +0200
+@@ -2290,7 +2290,7 @@
+     __builtin__.open = FakeFile
+     types.FileType = FakeFile
+ 
+-    __builtin__.buffer = NotImplementedFakeClass
++    #__builtin__.buffer = NotImplementedFakeClass
+ 
+     logging.debug('Executing CGI with env:\n%s', pprint.pformat(env))
+     try:
 @@ -3518,6 +3518,7 @@
    enable_sendmail = config.get('enable_sendmail', False)
    show_mail_body = config.get('show_mail_body', False)
@@ -21,7 +30,7 @@ diff -Naur a/google/appengine/tools/dev_appserver.py b/google/appengine/tools/de
    trusted = config.get('trusted', False)
  
    os.environ['APPLICATION_ID'] = app_id
-@@ -3533,9 +3534,23 @@
+@@ -3533,9 +3534,25 @@
  
    apiproxy_stub_map.apiproxy = apiproxy_stub_map.APIProxyStubMap()
  
@@ -31,11 +40,13 @@ diff -Naur a/google/appengine/tools/dev_appserver.py b/google/appengine/tools/de
 +  if use_redis:
 +    from google.appengine.datastore import datastore_index    
 +    import datastore_redis_stub
-+    index_yaml = open(os.path.join(root_path, 'index.yaml'), 'r')
 +    try:
++      index_yaml = open(os.path.join(root_path, 'index.yaml'), 'r')
 +      indexes = datastore_index.IndexDefinitionsToProtos(
 +          'test',
 +          datastore_index.ParseIndexDefinitions(index_yaml).indexes)
++    except IOError:
++      indexes = []
 +    except TypeError:
 +      indexes = []
 +    datastore = datastore_redis_stub.DatastoreRedisStub(
@@ -50,7 +61,7 @@ diff -Naur a/google/appengine/tools/dev_appserver.py b/google/appengine/tools/de
    fixed_login_url = '%s?%s=%%s' % (login_url,
 diff -Naur a/google/appengine/tools/dev_appserver_main.py b/google/appengine/tools/dev_appserver_main.py
 --- a/google/appengine/tools/dev_appserver_main.py	2010-03-23 00:34:49.000000000 +0100
-+++ b/google/appengine/tools/dev_appserver_main.py	2010-04-04 01:22:00.000000000 +0200
++++ b/google/appengine/tools/dev_appserver_main.py	2010-04-04 02:50:37.000000000 +0200
 @@ -59,6 +59,7 @@
                               skipped_files (default False)
    --disable_static_caching   Never allow the browser to cache static files.
