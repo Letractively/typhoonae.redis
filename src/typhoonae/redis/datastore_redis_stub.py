@@ -35,6 +35,7 @@ import hashlib
 import logging
 import redis
 import threading
+import time
 
 
 entity_pb.Reference.__hash__      = lambda self: hash(self.Encode())
@@ -54,12 +55,13 @@ _DATASTORE_OPERATORS = {
     datastore_pb.Query_Filter.EQUAL:                 '==',
 }
 
-# Reserved Redis keys and patterns
-_NEXT_ID         = '%(app)s!\vNEXT_ID'
-_KIND_INDEX      = '%(app)s!%(kind)s:\vKEYS'
-_KIND_INDEX_KEYS = '%(app)s!%(kind)s:\vINDEX_KEYS'
-_PROPERTY_INDEX  = '%(app)s!%(kind)s:%(prop)s:%(encval)s:\vKEYS'
-_PROPERTY_VALUE  = '%(key)s:%(prop)s'
+# Reserved Redis keys
+_NEXT_ID          = '%(app)s!\vNEXT_ID'
+_KIND_INDEX       = '%(app)s!%(kind)s:\vKEYS'
+_KIND_INDEX_KEYS  = '%(app)s!%(kind)s:\vINDEX_KEYS'
+_PROPERTY_INDEX   = '%(app)s!%(kind)s:%(prop)s:%(encval)s:\vKEYS'
+_PROPERTY_VALUE   = '%(key)s:%(prop)s'
+_TRANSACTION_LOCK = '%(app)s!%(entity_group)s:\vLOCK'
 
 
 class _StoredEntity(object):
@@ -216,6 +218,58 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         if tx not in self.__transactions:
             raise apiproxy_errors.ApplicationError(
                 datastore_pb.Error.BAD_REQUEST, 'Transaction %s not found' % tx)
+
+    def _AcquireTransactionLock(self, entity_group='', timeout=5):
+        """Acquire a transaction lock for a specified entity group.
+
+        We assume 3 clients C1, C2 and C3 where C1 is crashed due to an
+        uncaught exception.
+
+        - C2 sends SETNX lock.foo in order to acquire the lock.
+        - The crashed C1 client still holds it, so Redis will reply with 0
+          to C2.
+        - C2 GET lock.foo to check if the lock expired. If not it will sleep
+          one second and retry from the start.
+        - If instead the lock is expired because the UNIX time at lock.foo is
+          older than the current UNIX time, C2 tries to perform GETSET
+          lock.foo <current unix timestamp + lock timeout + 1>
+        - Thanks to the GETSET command semantic C2 can check if the old value
+          stored at key is still an expired timestamp. If so we acquired the
+          lock!
+        - Otherwise if another client, for instance C3, was faster than C2 and
+          acquired the lock with the GETSET operation, C2 GETSET operation will
+          return a non expired timestamp. C2 will simply restart from the first
+          step. Note that even if C2 set the key a bit a few seconds in the
+          future this is not a problem.
+
+        Args:
+            entity_group: An entity group.
+            timeout: Number of seconds till a lock expires.
+        """
+        lock_key = _TRANSACTION_LOCK % dict(
+            app=self.__app_id, entity_group=entity_group)
+        acquired = 0
+        while not acquired:
+            acquired = self.__db.setnx(lock_key, time.time() + timeout + 1)
+            if not acquired:
+                exp_time = float(self.__db.get(lock_key) or 0)
+                curr_time = time.time()
+                timestamp = curr_time + timeout + 1
+                if exp_time < curr_time:
+                    exp_time = float(self.__db.getset(lock_key, timestamp) or 0)
+                    if exp_time < curr_time:
+                        acquired = True
+                else:
+                    time.sleep(1)
+
+    def _ReleaseTransactionLock(self, entity_group=''):
+        """Release transaction lock if present.
+
+        Args:
+            entity_group: An entity group.
+        """
+        lock_info = dict(app=self.__app_id, entity_group=entity_group) 
+        self.__db.delete(_TRANSACTION_LOCK % lock_info)
 
     @staticmethod
     def _GetIndexDefinitions(indexes):
@@ -697,6 +751,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         self.__transactions.add(transaction)
 
         self.__tx_actions = []
+        self._AcquireTransactionLock(timeout=30)
 
     def _Dynamic_AddActions(self, request, _):
         """Associates the creation of one or more tasks with a transaction.
@@ -731,6 +786,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         finally:
             self.__tx_actions = []
             self.__transactions.remove(transaction)
+            self._ReleaseTransactionLock()
 
     def _Dynamic_Rollback(self, transaction, transaction_response):
         """ """

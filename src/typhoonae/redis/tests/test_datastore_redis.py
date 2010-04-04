@@ -271,6 +271,18 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         self.assertEqual([2300], [artifact.age for artifact in query.run()])
 
+    def testTransactionLocking(self):
+        """Acquires and releases transaction locks."""
+
+        self.stub._AcquireTransactionLock('foo', timeout=1)
+        self.stub._ReleaseTransactionLock('foo')
+
+        self.stub._AcquireTransactionLock('bar', timeout=2)
+        t = time.time()
+        self.stub._AcquireTransactionLock('bar', timeout=1)
+        assert time.time() > t + 1
+        self.stub._ReleaseTransactionLock('bar')
+
     def testTransactions(self):
         """Puts, gets and deletes enitites in a transaction."""
 
@@ -282,12 +294,26 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         del counter
 
-        def tx():
-            c = Counter.get_by_key_name('counter')
-            c.value += 1
-            c.put()
+        class Incrementer(threading.Thread):
+            def run(self):
+                def tx():
+                    counter = Counter.get_by_key_name('counter')
+                    counter.value += 1
+                    counter.put()
+                for i in range(100):
+                    db.run_in_transaction(tx)
 
-        db.run_in_transaction(tx)
+        start_time = time.time()
+
+        incrementers = []
+        for i in range(10):
+            incrementers.append(Incrementer())
+            incrementers[i].start()
+
+        for incr in incrementers:
+            incr.join()
+
+        sec = time.time() - start_time
 
         counter = Counter.get_by_key_name('counter')
-        self.assertEqual(1, counter.value)
+        self.assertEqual(1000, counter.value)
