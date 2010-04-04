@@ -672,6 +672,11 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
     def _Dynamic_Count(self, query, integer64proto):
         """ """
 
+    def QueryHistory(self):
+        """Returns a dict that maps Query PBs to times they've been run."""
+
+        return {}
+
     def _Dynamic_BeginTransaction(self, request, transaction):
         """Begin a transaction.
 
