@@ -437,8 +437,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
                 index_entities.append(entity)
 
-        success = pipe.execute()
-        if not False in success:
+        # Only index successfully written entities.
+        if all(pipe.execute()):
             for entity in index_entities:
                 self._IndexEntity(entity)
 
