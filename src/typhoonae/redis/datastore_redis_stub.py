@@ -128,9 +128,9 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         # The redis database where we store encoded entity protobufs and our
         # indices.
-        self.__datastore = redis.Redis(host=host, port=port, db=1)
+        self.__db = redis.Redis(host=host, port=port, db=1)
         try:
-            self.__datastore.ping()
+            self.__db.ping()
         except redis.ConnectionError:
             raise apiproxy_errors.ApplicationError(
                 datastore_pb.Error.INTERNAL_ERROR,
@@ -142,10 +142,10 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         # Sequential IDs.
         self.__next_id_key = _NEXT_ID % {'app': self.__app_id}
-        self.__next_id = int(self.__datastore.get(self.__next_id_key) or 0)
+        self.__next_id = int(self.__db.get(self.__next_id_key) or 0)
         if self.__next_id == 0:
             self.__next_id += 1
-            self.__datastore.incr(self.__next_id_key)
+            self.__db.incr(self.__next_id_key)
         self.__id_lock = threading.Lock()
 
         # Transaction set, snapshot and handles.
@@ -157,8 +157,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
     def Clear(self):
         """Clears all Redis databases of the current application."""
 
-        keys = self.__datastore.keys('%s!*' % self.__app_id)
-        pipe = self.__datastore.pipeline()
+        keys = self.__db.keys('%s!*' % self.__app_id)
+        pipe = self.__db.pipeline()
         for key in keys:
             pipe = pipe.delete(key)
         pipe.execute()
@@ -329,11 +329,11 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         self.__ValidateAppId(app)
 
         kind_indexes = _KIND_INDEX_KEYS % {'app': app, 'kind': kind}
-        index_keys = self.__datastore.sort(kind_indexes) or []
+        index_keys = self.__db.sort(kind_indexes) or []
 
         stored_key = self._GetRedisKeyForKey(key)
 
-        pipe = self.__datastore.pipeline()
+        pipe = self.__db.pipeline()
 
         for index in [k for k in index_keys if k.endswith(':\vKEYS')]:
             pipe = pipe.srem(index, stored_key)
@@ -375,7 +375,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         Returns:
             Boolean whether clening property indexes succeeded.
         """
-        pipe = self.__datastore.pipeline()
+        pipe = self.__db.pipeline()
 
         for index in index_keys:
             if index.endswith(':\vKEYS'):
@@ -383,7 +383,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         indexes_to_remove = zip(index_keys, pipe.execute())
 
-        pipe = self.__datastore.pipeline()
+        pipe = self.__db.pipeline()
 
         for index, exists in indexes_to_remove:
             if not exists:
@@ -408,14 +408,14 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             # Allocate integer ID range.
             self.__id_lock.acquire()
             reserved_id = int(
-                self.__datastore.incr(self.__next_id_key, allocate_ids))
+                self.__db.incr(self.__next_id_key, allocate_ids))
             self.__next_id = reserved_id - allocate_ids
             self.__id_lock.release()
 
         index_entities = []
 
         # Open a Redis pipeline to perform multiple commands at once.
-        pipe = self.__datastore.pipeline()
+        pipe = self.__db.pipeline()
 
         for app_kind in self.__entities_cache:
             entities = self.__entities_cache[app_kind]
@@ -530,7 +530,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             self.__ValidateAppId(key.app())
 
             group = get_response.add_entity()
-            data = self.__datastore.get(self._GetRedisKeyForKey(key))
+            data = self.__db.get(self._GetRedisKeyForKey(key))
 
             if data is None:
                 continue
@@ -551,7 +551,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             self.__ValidateTransaction(delete_request.transaction())
 
         # Open a Redis pipeline to perform multiple commands at once.
-        pipe = self.__datastore.pipeline()
+        pipe = self.__db.pipeline()
 
         for key in delete_request.key_list():
             self.__ValidateAppId(key.app())
@@ -573,9 +573,9 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             stored_key = self._GetRedisKeyForKey(key)
 
             kind_indexes = _KIND_INDEX_KEYS % {'app': key.app(), 'kind': kind}
-            index_keys = self.__datastore.sort(kind_indexes) or []
+            index_keys = self.__db.sort(kind_indexes) or []
 
-            pipe = self.__datastore.pipeline()
+            pipe = self.__db.pipeline()
 
             for index in index_keys:
                 if index.startswith(stored_key):
@@ -626,7 +626,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         result = []
 
         if not filters and not orders:
-            pipe = self.__datastore.pipeline()
+            pipe = self.__db.pipeline()
             key_info = dict(app=app_id, kind=query.kind())
             pipe = pipe.sort(_KIND_INDEX % key_info, get='*')
             entities_pb = pipe.execute().pop()
@@ -643,7 +643,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 (p.name(), datastore_types.FromPropertyPb(p))
                 for p in filt.property_list()]
 
-            pipe = self.__datastore.pipeline()
+            pipe = self.__db.pipeline()
 
             for prop, val in property_list:
                 digest = hashlib.md5(
