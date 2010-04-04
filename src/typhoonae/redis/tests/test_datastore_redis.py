@@ -287,8 +287,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
             c.value += 1
             c.put()
 
-        for i in range(1000):
-            db.run_in_transaction(tx)
+        db.run_in_transaction(tx)
 
         counter = Counter.get_by_key_name('counter')
-        self.assertEqual(1000, counter.value)
+        self.assertEqual(1, counter.value)
