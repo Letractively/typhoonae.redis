@@ -141,7 +141,6 @@ class DatastoreRedisTestCase(unittest.TestCase):
         self.assertEqual(
             u'test!Foo\x08\t0000000001/Bar\x08\t0000000002',
             self.stub._GetRedisKeyForKey(ref))
- 
 
     def testPutGetDelete(self):
         """Puts/gets/deletes entities into/from the datastore."""
