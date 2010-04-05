@@ -523,6 +523,15 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         assert pb.IsInitialized(explanation), explanation
         pb.Encode()
 
+    @staticmethod
+    def _ExtractEntityGroupFromKeys(keys):
+        """Extracts entity group."""
+
+        types = set([k.path().element_list()[0].type() for k in keys])
+        assert len(types) == 1
+
+        return types.pop()
+
     def _Dynamic_Put(self, put_request, put_response):
         """Implementation of datastore.Put().
 
