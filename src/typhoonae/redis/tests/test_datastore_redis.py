@@ -284,7 +284,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
         self.stub._ReleaseTransactionLock('bar')
 
     def testTransactions(self):
-        """Puts, gets and deletes enitites in a transaction."""
+        """Executes 1000 transactions in 10 concurrent threads."""
 
         class Counter(db.Model):
             value = db.IntegerProperty()
@@ -303,8 +303,6 @@ class DatastoreRedisTestCase(unittest.TestCase):
                 for i in range(100):
                     db.run_in_transaction(tx)
 
-        start_time = time.time()
-
         incrementers = []
         for i in range(10):
             incrementers.append(Incrementer())
@@ -312,8 +310,6 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         for incr in incrementers:
             incr.join()
-
-        sec = time.time() - start_time
 
         counter = Counter.get_by_key_name('counter')
         self.assertEqual(1000, counter.value)
