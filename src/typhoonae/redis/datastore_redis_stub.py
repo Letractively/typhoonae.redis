@@ -223,17 +223,20 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
     def _AcquireTransactionLock(self, entity_group='', timeout=_MAX_TIMEOUT):
         """Acquire a transaction lock for a specified entity group.
 
+        The following algorithm helps to avoid a race condition while
+        acquireing a lock.
+
         We assume 3 clients C1, C2 and C3 where C1 is crashed due to an
         uncaught exception.
 
-        - C2 sends SETNX lock.foo in order to acquire the lock.
+        - C2 sends SETNX <lock key> in order to acquire the lock.
         - The crashed C1 client still holds it, so Redis will reply with 0
           to C2.
-        - C2 GET lock.foo to check if the lock expired. If not it will sleep
-          one second and retry from the start.
-        - If instead the lock is expired because the UNIX time at lock.foo is
+        - C2 GET <lock key> to check if the lock expired. If not it will sleep
+          a tenth second and retry from the start.
+        - If instead the lock is expired because the UNIX time at <lock key> is
           older than the current UNIX time, C2 tries to perform GETSET
-          lock.foo <current unix timestamp + lock timeout + 1>
+          <lock key> <current unix timestamp + lock timeout + 1>
         - Thanks to the GETSET command semantic C2 can check if the old value
           stored at key is still an expired timestamp. If so we acquired the
           lock!
@@ -243,25 +246,27 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
           step. Note that even if C2 set the key a bit a few seconds in the
           future this is not a problem.
 
+        (Taken from http://code.google.com/p/redis/wiki/SetnxCommand)
+
         Args:
             entity_group: An entity group.
             timeout: Number of seconds till a lock expires.
         """
-        lock_key = _TRANSACTION_LOCK % dict(
+        lock = _TRANSACTION_LOCK % dict(
             app=self.__app_id, entity_group=entity_group)
-        acquired = 0
-        while not acquired:
-            acquired = self.__db.setnx(lock_key, time.time() + timeout + 1)
-            if not acquired:
-                exp_time = float(self.__db.get(lock_key) or 0)
-                curr_time = time.time()
-                timestamp = curr_time + timeout + 1
-                if exp_time < curr_time:
-                    exp_time = float(self.__db.getset(lock_key, timestamp) or 0)
-                    if exp_time < curr_time:
-                        acquired = True
-                else:
-                    time.sleep(0.1)
+
+        while True:
+            if self.__db.setnx(lock, time.time() + timeout + 1):
+                break
+            expires = float(self.__db.get(lock) or 0)
+            now = time.time()
+            timestamp = now + timeout + 1
+            if expires < now:
+                expires = float(self.__db.getset(lock, timestamp) or 0)
+                if expires < now:
+                    break
+            else:
+                time.sleep(0.1)
 
     def _ReleaseTransactionLock(self, entity_group=''):
         """Release transaction lock if present.
