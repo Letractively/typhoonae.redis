@@ -43,9 +43,10 @@ datastore_pb.Query.__hash__       = lambda self: hash(self.Encode())
 datastore_pb.Transaction.__hash__ = lambda self: hash(self.Encode())
 
 # Constants
-_MAXIMUM_RESULTS  = 1000
-_MAX_QUERY_OFFSET = 1000
+_MAXIMUM_RESULTS      = 1000
+_MAX_QUERY_OFFSET     = 1000
 _MAX_QUERY_COMPONENTS = 100
+_MAX_TIMEOUT          = 30
 
 _DATASTORE_OPERATORS = {
     datastore_pb.Query_Filter.LESS_THAN:             '<',
@@ -219,7 +220,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             raise apiproxy_errors.ApplicationError(
                 datastore_pb.Error.BAD_REQUEST, 'Transaction %s not found' % tx)
 
-    def _AcquireTransactionLock(self, entity_group='', timeout=5):
+    def _AcquireTransactionLock(self, entity_group='', timeout=_MAX_TIMEOUT):
         """Acquire a transaction lock for a specified entity group.
 
         We assume 3 clients C1, C2 and C3 where C1 is crashed due to an
@@ -260,7 +261,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                     if exp_time < curr_time:
                         acquired = True
                 else:
-                    time.sleep(1)
+                    time.sleep(0.1)
 
     def _ReleaseTransactionLock(self, entity_group=''):
         """Release transaction lock if present.
@@ -751,7 +752,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         self.__transactions.add(transaction)
 
         self.__tx_actions = []
-        self._AcquireTransactionLock(timeout=30)
+        self._AcquireTransactionLock()
 
     def _Dynamic_AddActions(self, request, _):
         """Associates the creation of one or more tasks with a transaction.
