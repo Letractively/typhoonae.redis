@@ -271,17 +271,17 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         self.assertEqual([2300], [artifact.age for artifact in query.run()])
 
-    def testTransactionLocking(self):
+    def testLocking(self):
         """Acquires and releases transaction locks."""
 
-        self.stub._AcquireTransactionLock('foo', timeout=1)
-        self.stub._ReleaseTransactionLock('foo')
+        self.stub._AcquireLockForEntityGroup('foo', timeout=1)
+        self.stub._ReleaseLockForEntityGroup('foo')
 
-        self.stub._AcquireTransactionLock('bar', timeout=2)
+        self.stub._AcquireLockForEntityGroup('bar', timeout=2)
         t = time.time()
-        self.stub._AcquireTransactionLock('bar', timeout=1)
+        self.stub._AcquireLockForEntityGroup('bar', timeout=1)
         assert time.time() > t + 1
-        self.stub._ReleaseTransactionLock('bar')
+        self.stub._ReleaseLockForEntityGroup('bar')
 
     def testTransactions(self):
         """Executes 1000 transactions in 10 concurrent threads."""
