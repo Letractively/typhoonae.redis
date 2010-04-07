@@ -228,6 +228,15 @@ class DatastoreRedisTestCase(unittest.TestCase):
     def testQueryWithFilter(self):
         """Tries queries with filters."""
 
+        class SomeKind(db.Model):
+            value = db.StringProperty()
+
+        foo = SomeKind(value="foo")
+        foo.put()
+
+        bar = SomeKind(value="bar")
+        bar.put()
+
         class Artifact(db.Model):
             description = db.StringProperty(required=True)
             age = db.IntegerProperty()

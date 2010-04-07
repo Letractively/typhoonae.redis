@@ -440,19 +440,20 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         """
         pipe = self.__db.pipeline()
 
-        for index in index_keys:
-            if index.endswith(':\vKEYS'):
-                pipe = pipe.exists(index)
+        hash_indexes = [idx for idx in index_keys if idx.endswith(':\vKEYS')]
 
-        indexes_to_remove = zip(index_keys, pipe.execute())
+        for index in hash_indexes:
+            pipe = pipe.exists(index)
+
+        indexes = zip(hash_indexes, pipe.execute())
 
         pipe = self.__db.pipeline()
 
-        for index, exists in indexes_to_remove:
+        for index, exists in indexes:
             if not exists:
                 pipe = pipe.srem(kind_indexes_key, index)
 
-        return False not in pipe.execute()
+        return all(pipe.execute())
 
     def _WriteEntities(self):
         """Write stored entities to Redis backend.
