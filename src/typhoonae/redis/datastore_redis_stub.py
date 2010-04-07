@@ -142,8 +142,6 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         # In-memory entity cache.
         self.__entities_cache = {}
         self.__entities_cache_lock = threading.Lock()
-        self.__entity_group = None
-        self.__has_entity_group_lock = False
 
         # Sequential IDs.
         self.__next_id_key = _NEXT_ID % {'app': self.__app_id}
@@ -154,7 +152,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         self.__id_lock = threading.Lock()
 
         # Transaction set, snapshot and handles.
-        self.__transactions = set()
+        self.__transactions = {}
+        self.__inside_tx = False
         self.__tx_lock = threading.Lock()
         self.__tx_actions = []
         self.__next_tx_handle = 1
@@ -170,12 +169,11 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         pipe.execute()
 
         self.__next_id = 1
-        self.__transactions = set()
+        self.__transactions = {}
+        self.__inside_tx = False
         self.__tx_actions = []
-        self.__has_entity_group_lock = False
         self.__next_tx_handle = 1
         self.__entities_cache = {}
-        self.__entity_group = None
 
     def __ValidateAppId(self, app_id):
         """Verify that this is the stub for app_id.
@@ -522,26 +520,26 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 keys = [e.key() for e in request.entity_list()]
             elif call == 'Delete':
                 keys = request.key_list()
-            self.__entity_group = self._ExtractEntityGroupFromKeys(keys)
+            entity_group = self._ExtractEntityGroupFromKeys(keys)
             if request.has_transaction():
                 if (request.transaction() in self.__transactions
-                        and not self.__has_entity_group_lock):
-                    self._AcquireLockForEntityGroup(self.__entity_group)
-                    self.__has_entity_group_lock = True
-            else:
-                self._AcquireLockForEntityGroup(self.__entity_group)
+                        and not self.__inside_tx):
+                    self.__inside_tx = True
+                    self.__transactions[request.transaction()] = entity_group
+            self._AcquireLockForEntityGroup(entity_group)
                     
         super(DatastoreRedisStub, self).MakeSyncCall(
             service, call, request, response)
 
         if call in ('Put', 'Delete'):
             if not request.has_transaction():
-                self._ReleaseLockForEntityGroup(self.__entity_group) 
+                self._ReleaseLockForEntityGroup(entity_group) 
 
         if call == 'Commit':
-            self._ReleaseLockForEntityGroup(self.__entity_group)
-            self.__has_entity_group_lock = False
-            self.__entity_group = None
+            self._ReleaseLockForEntityGroup(self.__transactions[request])
+            del self.__transactions[request]
+            self.__inside_tx = False
+            self.__tx_lock.release()
 
         self.assertPbIsInitialized(response)
 
@@ -793,7 +791,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         transaction.set_app(request.app())
         transaction.set_handle(handle)
         assert transaction not in self.__transactions
-        self.__transactions.add(transaction)
+        self.__transactions[transaction] = None
 
         self.__tx_actions = []
         self.__tx_lock.acquire()
@@ -830,8 +828,6 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         finally:
             self.__tx_actions = []
-            self.__transactions.remove(transaction)
-            self.__tx_lock.release()
 
     def _Dynamic_Rollback(self, transaction, transaction_response):
         """ """
