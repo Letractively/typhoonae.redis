@@ -460,19 +460,18 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         Uses a Redis Transaction.
         """
 
-        allocate_ids = 0
+        new_ids = 0
         for app_kind in self.__entities_cache:
             for key in self.__entities_cache[app_kind]:
                 last_path = key.path().element_list()[-1]
                 if last_path.id() == 0 and not last_path.has_name():
-                    allocate_ids += 1
+                    new_ids += 1
 
-        if allocate_ids:
+        if new_ids:
             # Allocate integer ID range.
             self.__id_lock.acquire()
-            reserved_id = int(
-                self.__db.incr(self.__next_id_key, allocate_ids))
-            self.__next_id = reserved_id - allocate_ids
+            max_id = int(self.__db.incr(self.__next_id_key, new_ids))
+            self.__next_id = max_id - new_ids
             self.__id_lock.release()
 
         index_entities = []
