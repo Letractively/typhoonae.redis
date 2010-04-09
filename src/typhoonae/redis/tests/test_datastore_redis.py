@@ -186,8 +186,51 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         mark_twain.delete()
 
+    def testLocking(self):
+        """Acquires and releases transaction locks."""
+
+        self.stub._AcquireLockForEntityGroup('foo', timeout=1)
+        self.stub._ReleaseLockForEntityGroup('foo')
+
+        self.stub._AcquireLockForEntityGroup('bar', timeout=2)
+        t = time.time()
+        self.stub._AcquireLockForEntityGroup('bar', timeout=1)
+        assert time.time() > t + 1
+        self.stub._ReleaseLockForEntityGroup('bar')
+
+    def testTransactions(self):
+        """Executes 1000 transactions in 10 concurrent threads."""
+
+        class Counter(db.Model):
+            value = db.IntegerProperty()
+
+        counter = Counter(key_name='counter', value=0)
+        counter.put()
+
+        del counter
+
+        class Incrementer(threading.Thread):
+            def run(self):
+                def tx():
+                    counter = Counter.get_by_key_name('counter')
+                    counter.value += 1
+                    counter.put()
+                for i in range(100):
+                    db.run_in_transaction(tx)
+
+        incrementers = []
+        for i in range(10):
+            incrementers.append(Incrementer())
+            incrementers[i].start()
+
+        for incr in incrementers:
+            incr.join()
+
+        counter = Counter.get_by_key_name('counter')
+        self.assertEqual(1000, counter.value)
+
     def testRunQuery(self):
-        """Runs some queries."""
+        """Runs some simple queries."""
 
         class Employee(db.Model):
             first_name = db.StringProperty(required=True)
@@ -279,46 +322,3 @@ class DatastoreRedisTestCase(unittest.TestCase):
         query = Artifact.all().filter('age =', 2300).filter('age =', 2400)
 
         self.assertEqual([2300], [artifact.age for artifact in query.run()])
-
-    def testLocking(self):
-        """Acquires and releases transaction locks."""
-
-        self.stub._AcquireLockForEntityGroup('foo', timeout=1)
-        self.stub._ReleaseLockForEntityGroup('foo')
-
-        self.stub._AcquireLockForEntityGroup('bar', timeout=2)
-        t = time.time()
-        self.stub._AcquireLockForEntityGroup('bar', timeout=1)
-        assert time.time() > t + 1
-        self.stub._ReleaseLockForEntityGroup('bar')
-
-    def testTransactions(self):
-        """Executes 1000 transactions in 10 concurrent threads."""
-
-        class Counter(db.Model):
-            value = db.IntegerProperty()
-
-        counter = Counter(key_name='counter', value=0)
-        counter.put()
-
-        del counter
-
-        class Incrementer(threading.Thread):
-            def run(self):
-                def tx():
-                    counter = Counter.get_by_key_name('counter')
-                    counter.value += 1
-                    counter.put()
-                for i in range(100):
-                    db.run_in_transaction(tx)
-
-        incrementers = []
-        for i in range(10):
-            incrementers.append(Incrementer())
-            incrementers[i].start()
-
-        for incr in incrementers:
-            incr.join()
-
-        counter = Counter.get_by_key_name('counter')
-        self.assertEqual(1000, counter.value)
