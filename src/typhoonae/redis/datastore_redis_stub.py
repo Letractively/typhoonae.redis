@@ -822,7 +822,16 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         """ """
 
     def _Dynamic_Count(self, query, integer64proto):
-        """ """
+        """Count the number of query results.
+
+        Args:
+            query: A datastore_pb.Query.
+            integer64proto:
+        """
+        query_result = datastore_pb.QueryResult()
+        self._Dynamic_RunQuery(query, query_result)
+        integer64proto.set_value(
+            min(len(query_result.result_list()), _MAXIMUM_RESULTS))
 
     def QueryHistory(self):
         """Returns a dict that maps Query PBs to times they've been run."""

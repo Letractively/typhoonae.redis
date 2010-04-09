@@ -273,6 +273,20 @@ class DatastoreRedisTestCase(unittest.TestCase):
         query = Employee.all()
         self.assertEqual([], list(query.run()))
 
+    def testCount(self):
+        """Counts query results."""
+
+        class Balloon(db.Model):
+            color = db.StringProperty()
+
+        Balloon(color='Red').put()
+
+        self.assertEqual(1, Balloon.all().count())
+
+        Balloon(color='Blue').put()
+
+        self.assertEqual(2, Balloon.all().count())
+
     def testQueryWithFilter(self):
         """Tries queries with filters."""
 
