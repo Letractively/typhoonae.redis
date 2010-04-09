@@ -825,8 +825,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         """Count the number of query results.
 
         Args:
-            query: A datastore_pb.Query.
-            integer64proto:
+            query: A datastore_pb.Query instance.
+            integer64proto: An api_base_pb.Integer64Proto instance.
         """
         query_result = datastore_pb.QueryResult()
         self._Dynamic_RunQuery(query, query_result)
