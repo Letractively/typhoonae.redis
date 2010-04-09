@@ -353,6 +353,28 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         return datastore_types.Key.from_path(*[from_db(a) for a in items])
 
+    def _MakeKeyOnlyEntityForRedisKey(self, key):
+        """Make a key only entity.
+
+        Args:
+            key: String representing a Redis key.
+
+        Returns:
+            An entity_pb.EntityProto instance.
+        """
+
+        ref = self._GetKeyForRedisKey(key)._ToPb()
+
+        entity = entity_pb.EntityProto()
+
+        mutable_key = entity.mutable_key()
+        mutable_key.CopyFrom(ref)
+
+        mutable_entity_group = entity.mutable_entity_group()
+        mutable_entity_group.CopyFrom(ref.path())
+
+        return entity
+
     def _StoreEntity(self, entity):
         """Store the given entity.
 
@@ -751,10 +773,13 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         if not filters and not orders:
             pipe = self.__db.pipeline()
             key_info = dict(app=app_id, kind=query.kind())
-            pipe = pipe.sort(_KIND_INDEX % key_info, get='*')
-            entities_pb = pipe.execute().pop()
-            if entities_pb:
-                result.extend(entities_pb)
+            if query.keys_only():
+                pipe = pipe.sort(_KIND_INDEX % key_info)
+            else:
+                pipe = pipe.sort(_KIND_INDEX % key_info, get='*')
+            values = pipe.execute().pop()
+            if values:
+                result.extend(values)
 
         for filt in filters:
             assert filt.op() != datastore_pb.Query_Filter.IN
@@ -779,9 +804,13 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             if entities_pb:
                 result.extend(entities_pb)
 
-        if result and not query.keys_only():
-            query_result.result_list().extend(
-                [entity_pb.EntityProto(pb) for pb in result])
+        if result:
+            if query.keys_only():
+                query_result.result_list().extend(
+                    [self._MakeKeyOnlyEntityForRedisKey(key) for key in result])
+            else:
+                query_result.result_list().extend(
+                    [entity_pb.EntityProto(pb) for pb in result])
 
         # Pupulating the query result with just nothing for development.
         query_result.mutable_cursor().set_app(app_id)

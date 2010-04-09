@@ -15,13 +15,13 @@
 # limitations under the License.
 """Unit tests for the Datastore Redis stub."""
 
+from google.appengine.api import datastore_types
 from google.appengine.datastore import datastore_index
 from google.appengine.ext import db
 
 import google.appengine.api.apiproxy_stub
 import google.appengine.api.apiproxy_stub_map
 import google.appengine.api.datastore_errors
-import google.appengine.api.datastore_types
 import google.appengine.datastore.entity_pb
 import google.appengine.runtime.apiproxy_errors
 import os
@@ -120,7 +120,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
             u'test!Foo\x08\t0000000002/Bar\x08bar')
         
         self.assertEqual(
-            google.appengine.api.datastore_types.Key.from_path(
+            datastore_types.Key.from_path(
                 u'Foo', 2, u'Bar', u'bar', _app=u'test'),
             key)
 
@@ -322,6 +322,27 @@ class DatastoreRedisTestCase(unittest.TestCase):
         query = Artifact.all().filter('age =', 2300).filter('age =', 2400)
 
         self.assertEqual([2300], [artifact.age for artifact in query.run()])
+
+    def testQueryForKeysOnly(self):
+        """Query for entity keys instead of full entities."""
+
+        class Asset(db.Model):
+            name = db.StringProperty(required=True)
+            price = db.FloatProperty(required=True)
+
+        lamp = Asset(name="Bedside Lamp", price=10.45)
+        lamp.put()
+
+        towel = Asset(name="Large Towel", price=3.50)
+        towel.put()
+
+        query = Asset.all(keys_only=True)
+
+        self.assertEqual(
+            set([
+                datastore_types.Key.from_path(u'Asset', 1, _app=u'test'),
+                datastore_types.Key.from_path(u'Asset', 2, _app=u'test')]),
+            set(query.run()))
 
     def testQueryWithOrder(self):
         """Tests queries with sorting."""
