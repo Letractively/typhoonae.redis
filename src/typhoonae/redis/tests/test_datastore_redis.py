@@ -322,3 +322,26 @@ class DatastoreRedisTestCase(unittest.TestCase):
         query = Artifact.all().filter('age =', 2300).filter('age =', 2400)
 
         self.assertEqual([2300], [artifact.age for artifact in query.run()])
+
+    def testQueryWithOrder(self):
+        """Tests queries with sorting."""
+
+        class Planet(db.Model):
+            distance = db.FloatProperty()
+            name = db.StringProperty()
+
+        earth = Planet(distance=93.0, name="Earth")
+        earth.put()
+
+        saturn = Planet(distance=886.7, name="Saturn")
+        saturn.put()
+
+        venus = Planet(distance=67.2, name="Venus")
+        venus.put()
+
+        mars = Planet(distance=141.6, name="Mars")
+        mars.put()
+
+        query = Planet.all().order('distance')
+
+        self.assertEqual([], list(query.run()))

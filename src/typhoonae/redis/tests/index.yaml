@@ -10,3 +10,9 @@ indexes:
   - name: description
   - name: age
     direction: desc
+
+- kind: Planet
+  properties:
+  - name: distance
+    direction: asc
+  - name: name
