@@ -62,6 +62,7 @@ _KIND_INDEX        = '%(app)s!%(kind)s:\vKEYS'
 _KIND_INDEX_KEYS   = '%(app)s!%(kind)s:\vINDEX_KEYS'
 _NEXT_ID           = '%(app)s!\vNEXT_ID'
 _PROPERTY_INDEX    = '%(app)s!%(kind)s:%(prop)s:%(encval)s:\vKEYS'
+_PROPERTY_ORDER    = '%(app)s!%(kind)s:%(prop)s:\vZKEYS'
 _PROPERTY_VALUE    = '%(key)s:%(prop)s'
 
 
@@ -400,6 +401,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         for index in [k for k in index_keys if k.endswith(':\vKEYS')]:
             pipe = pipe.srem(index, stored_key)
+        for index in [k for k in index_keys if k.endswith(':\vZKEYS')]:
+            pipe = pipe.zrem(index, stored_key)
 
         kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
         pipe = pipe.sadd(kind_index, stored_key)
@@ -415,11 +418,23 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             value = self._GetRedisValueForValue(entity.native[name])
             digest = hashlib.md5(value).hexdigest()
 
+            # Property index
             prop_index = _PROPERTY_INDEX % {
                 'app': app, 'kind': kind, 'prop': name, 'encval': digest}
             pipe = pipe.sadd(prop_index, stored_key)
             pipe = pipe.sadd(kind_indexes, prop_index)
 
+            # Property order
+            try:
+                f = float(value)
+                prop_order = _PROPERTY_ORDER % {
+                    'app': app, 'kind': kind, 'prop': name}
+                pipe = pipe.zadd(prop_order, stored_key, f)
+                pipe = pipe.sadd(kind_indexes, prop_order)
+            except ValueError:
+                pass
+
+            # Property values
             prop_key = _PROPERTY_VALUE % {'key': stored_key, 'prop': name}
             pipe = pipe.set(prop_key, value)
             pipe = pipe.sadd(kind_indexes, prop_key)
@@ -427,6 +442,36 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         pipe.execute()
 
         self._CleanupPropertyIndexes(kind_indexes, index_keys)
+
+    def _UpdateIndexesForKeys(self, keys):
+        """Update indexes for given keys.
+
+        Args:
+            keys: List of entity_pb.Reference instances.
+        """
+
+        for key in keys:
+            kind = key.path().element_list()[-1].type()
+            stored_key = self._GetRedisKeyForKey(key)
+
+            kind_indexes = _KIND_INDEX_KEYS % {'app': key.app(), 'kind': kind}
+            index_keys = self.__db.sort(kind_indexes) or []
+
+            pipe = self.__db.pipeline()
+
+            for index in index_keys:
+                if index.startswith(stored_key):
+                    pipe = pipe.delete(index)
+                    pipe = pipe.srem(kind_indexes, index)
+                elif index.endswith(':\vZKEYS'):
+                    pipe = pipe.zrem(index, stored_key)
+                    pipe = pipe.srem(kind_indexes, index)
+                else:
+                    pipe = pipe.srem(index, stored_key)
+
+            pipe.execute()
+
+            self._CleanupPropertyIndexes(kind_indexes, index_keys)
 
     def _CleanupPropertyIndexes(self, kind_indexes_key, index_keys):
         """Remove deleted property indexes from kind indexes set.
@@ -661,29 +706,10 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
             pipe = pipe.delete(stored_key)
 
-        if False in pipe.execute():
+        if not all(pipe.execute()):
             return
 
-        # Update indexes
-        for key in delete_request.key_list():
-            kind = key.path().element_list()[-1].type()
-            stored_key = self._GetRedisKeyForKey(key)
-
-            kind_indexes = _KIND_INDEX_KEYS % {'app': key.app(), 'kind': kind}
-            index_keys = self.__db.sort(kind_indexes) or []
-
-            pipe = self.__db.pipeline()
-
-            for index in index_keys:
-                if index.startswith(stored_key):
-                    pipe = pipe.delete(index)
-                    pipe = pipe.srem(kind_indexes, index)
-                else:
-                    pipe = pipe.srem(index, stored_key)
-
-            pipe.execute()
-
-            self._CleanupPropertyIndexes(kind_indexes, index_keys)
+        self._UpdateIndexesForKeys(delete_request.key_list())
 
     def _Dynamic_RunQuery(self, query, query_result):
         """Run given query.
