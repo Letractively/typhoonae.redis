@@ -324,7 +324,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
         self.assertEqual([2300], [artifact.age for artifact in query.run()])
 
     def testQueryForKeysOnly(self):
-        """Query for entity keys instead of full entities."""
+        """Queries for entity keys instead of full entities."""
 
         class Asset(db.Model):
             name = db.StringProperty(required=True)
