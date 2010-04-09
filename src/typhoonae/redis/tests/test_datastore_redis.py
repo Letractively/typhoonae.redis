@@ -309,6 +309,9 @@ class DatastoreRedisTestCase(unittest.TestCase):
         helmet = Artifact(description="Spartan full size helmet", age=2400)
         helmet.put()
 
+        unknown = Artifact(description="Some unknown artifact")
+        unknown.put()
+
         query = Artifact.all().filter('age =', 2400)
 
         self.assertEqual(
@@ -341,6 +344,12 @@ class DatastoreRedisTestCase(unittest.TestCase):
         query = Artifact.all().filter('age =', 2300).filter('age =', 2400)
 
         self.assertEqual([2300], [artifact.age for artifact in query.run()])
+
+        query = Artifact.all()
+
+        self.assertEqual(
+            [2300L, None],
+            [artifact.age for artifact in query.run()])
 
     def testQueryForKeysOnly(self):
         """Queries for entity keys instead of full entities."""
@@ -384,4 +393,5 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         query = Planet.all().order('distance')
 
-        self.assertEqual([], list(query.run()))
+        # TODO Must be implemented in the stub.
+        self.assertEqual([], [planet.name for planet in query.run()])
