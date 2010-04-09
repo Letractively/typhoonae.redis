@@ -260,6 +260,11 @@ class DatastoreRedisTestCase(unittest.TestCase):
                          set(['%s %s' % (e.first_name, e.last_name)
                               for e in query.run()]))
 
+        # Get only one entity.
+        query = Employee.all()
+        self.assertEqual(u'Dowe', query.get().last_name)
+        self.assertEqual(u'Dowe', query.fetch(1)[0].last_name)
+
         # Delete our entities.
         employee.delete()
         manager.delete()
