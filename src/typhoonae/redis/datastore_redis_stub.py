@@ -36,6 +36,7 @@ import logging
 import redis
 import threading
 import time
+import uuid
 
 
 entity_pb.Reference.__hash__      = lambda self: hash(self.Encode())
@@ -770,16 +771,11 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         result = []
 
-        if not filters and not orders:
-            pipe = self.__db.pipeline()
+        pipe = self.__db.pipeline()
+
+        if not filters:
             key_info = dict(app=app_id, kind=query.kind())
-            if query.keys_only():
-                pipe = pipe.sort(_KIND_INDEX % key_info)
-            else:
-                pipe = pipe.sort(_KIND_INDEX % key_info, get='*')
-            values = pipe.execute().pop()
-            if values:
-                result.extend(values)
+            pipe = pipe.sort(_KIND_INDEX % key_info)
 
         for filt in filters:
             assert filt.op() != datastore_pb.Query_Filter.IN
@@ -791,19 +787,48 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 (p.name(), datastore_types.FromPropertyPb(p))
                 for p in filt.property_list()]
 
-            pipe = self.__db.pipeline()
-
             for prop, val in property_list:
                 digest = hashlib.md5(
                     self._GetRedisValueForValue(val)).hexdigest()
                 key_info = dict(
                     app=app_id, kind=query.kind(), prop=prop, encval=digest)
-                pipe = pipe.sort(_PROPERTY_INDEX % key_info, get='*')
+                pipe = pipe.sort(_PROPERTY_INDEX % key_info)
 
-            entities_pb = pipe.execute().pop()
-            if entities_pb:
-                result.extend(entities_pb)
+        values = pipe.execute()
+        if values:
+            buffer = set(values[0] or [])
+            for i in range(1, len(values)):
+                buffer = buffer & set(values[i] or [])
 
+        if buffer and orders:
+            buf_id = uuid.uuid4()
+
+            pipe = self.__db.pipeline()
+
+            for elem in buffer:
+                pipe = pipe.rpush(buf_id, elem)
+
+            for order in orders:
+                prop = order.property()
+                if order.direction() == 2:
+                    desc = True
+                else:
+                    desc = False
+                pipe = pipe.sort(buf_id, by='*:%s' % prop, desc=desc)
+
+            pipe = pipe.delete(buf_id)
+
+            status = pipe.execute()
+            assert status[-1]
+
+            buffer = status[(len(orders)+1)*-1]
+
+        if query.keys_only():
+            result.extend(buffer)
+        else:
+            if buffer:
+                result.extend(self.__db.mget(buffer))
+            
         if result:
             if query.keys_only():
                 query_result.result_list().extend(
@@ -812,7 +837,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 query_result.result_list().extend(
                     [entity_pb.EntityProto(pb) for pb in result])
 
-        # Pupulating the query result with just nothing for development.
+        # Pupulating the query result.
         query_result.mutable_cursor().set_app(app_id)
         query_result.mutable_cursor().set_cursor(0)
         query_result.set_keys_only(query.keys_only())

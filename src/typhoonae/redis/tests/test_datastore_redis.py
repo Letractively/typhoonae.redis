@@ -324,7 +324,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
             ['Mycenaean stirrup vase'],
             [artifact.description for artifact in query.run()])
 
-        query = Artifact.all().filter('age =', 2400).filter('age =', 3300)
+        query = Artifact.all().filter('age IN', [2400, 3300])
 
         self.assertEqual(
             set(['Spartan full size helmet', 'Mycenaean stirrup vase']),
@@ -332,7 +332,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         vase.delete()
 
-        query = Artifact.all().filter('age =', 2400).filter('age =', 3300)
+        query = Artifact.all().filter('age IN', [2400])
 
         self.assertEqual(
             ['Spartan full size helmet'],
@@ -341,15 +341,15 @@ class DatastoreRedisTestCase(unittest.TestCase):
         helmet.age = 2300
         helmet.put()
 
-        query = Artifact.all().filter('age =', 2300).filter('age =', 2400)
+        query = Artifact.all().filter('age =', 2300)
 
         self.assertEqual([2300], [artifact.age for artifact in query.run()])
 
         query = Artifact.all()
 
         self.assertEqual(
-            [2300L, None],
-            [artifact.age for artifact in query.run()])
+            set([2300L, None]),
+            set([artifact.age for artifact in query.run()]))
 
     def testQueryForKeysOnly(self):
         """Queries for entity keys instead of full entities."""
@@ -393,5 +393,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         query = Planet.all().order('distance')
 
-        # TODO Must be implemented in the stub.
-        self.assertEqual([], [planet.name for planet in query.run()])
+        self.assertEqual(
+            ['Venus', 'Earth', 'Mars', 'Saturn'],
+            [planet.name for planet in query.run()]
+        )
