@@ -57,7 +57,7 @@ _DATASTORE_OPERATORS = {
     datastore_pb.Query_Filter.EQUAL:                 '==',
 }
 
-_PROPERTY_VALUE_TYPES = ['Category', 'Key', 'int', 'float', 'str', 'unicode']
+_PROPERTY_VALUE_TYPES = ['int', 'float', 'str', 'unicode']
 _REDIS_SORT_ALPHA_TYPES = frozenset(['str', 'unicode'])
 
 # Reserved Redis keys
