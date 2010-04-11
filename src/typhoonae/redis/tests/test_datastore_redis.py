@@ -30,7 +30,7 @@ import threading
 import typhoonae.redis.datastore_redis_stub
 import unittest
 
- 
+
 class DatastoreRedisTestCase(unittest.TestCase):
     """Testing the TyphoonAE Datastore Redis API proxy stub."""
 
@@ -118,7 +118,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         key = self.stub._GetKeyForRedisKey(
             u'test!Foo\x08\t0000000002/Bar\x08bar')
-        
+
         self.assertEqual(
             datastore_types.Key.from_path(
                 u'Foo', 2, u'Bar', u'bar', _app=u'test'),
@@ -158,7 +158,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
         b.put()
 
         key = b.key()
-        
+
         del a, b
 
         book = google.appengine.api.datastore.Get(key)
