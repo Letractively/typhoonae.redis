@@ -16,3 +16,19 @@ indexes:
   - name: distance
     direction: asc
   - name: name
+
+- kind: Artist
+  properties:
+  - name: name
+
+- kind: Album
+  properties:
+  - name: title
+
+- kind: Song
+  properties:
+  - name: artist
+  - name: album
+  - name: duration
+  - name: genre
+  - name: title
