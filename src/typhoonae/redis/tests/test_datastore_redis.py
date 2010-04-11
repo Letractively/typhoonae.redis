@@ -397,26 +397,6 @@ class DatastoreRedisTestCase(unittest.TestCase):
             ['Venus', 'Earth', 'Mars', 'Saturn'],
             [planet.name for planet in query.run()]
         )
-  
-        class Planet(db.Expando):
-            name = db.StringProperty()
-
-        jupiter = Planet(distance="483.6", name="Jupiter")
-        jupiter.put()
-
-        query = Planet.all().order('distance')
-
-        self.assertEqual(
-            ['Venus', 'Earth', 'Mars', 'Jupiter', 'Saturn'],
-            [planet.name for planet in query.run()]
-        )
-
-        mars.delete()
-
-        self.assertEqual(
-            ['Venus', 'Earth', 'Jupiter', 'Saturn'],
-            [planet.name for planet in query.run()]
-        )
 
     def testQueriesWithMultipleFiltersAndOrders(self):
         """Tests queries with multiple filters and orders."""
@@ -453,3 +433,36 @@ class DatastoreRedisTestCase(unittest.TestCase):
             .filter('album =', abbeyroad))
 
         self.assertEqual(u'Here Comes The Sun', query.get().title)
+
+        cometogether = Song(
+            artist=beatles.key(),
+            album=abbeyroad.key(),
+            duration="4:21",
+            genre=db.Category("Pop"),
+            title="Come Together")
+        cometogether.put()
+
+        something = Song(
+            artist=beatles.key(),
+            album=abbeyroad.key(),
+            duration="3:03",
+            genre=db.Category("Pop"),
+            title="Something")
+        something.put()
+
+        because = Song(
+            artist=beatles.key(),
+            album=abbeyroad.key(),
+            duration="2:46",
+            genre=db.Category("Pop"),
+            title="Because")
+        because.put()
+
+        query = (Song.all()
+            .filter('artist =', beatles)
+            .filter('album =', abbeyroad)
+            .order('title'))
+
+        self.assertEqual(
+            [u'Because', u'Come Together', u'Here Comes The Sun', u'Something'],
+            [song.title for song in query.run()])

@@ -57,6 +57,9 @@ _DATASTORE_OPERATORS = {
     datastore_pb.Query_Filter.EQUAL:                 '==',
 }
 
+_PROPERTY_VALUE_TYPES = ['Category', 'Key', 'int', 'float', 'str', 'unicode']
+_REDIS_SORT_ALPHA_TYPES = frozenset(['str', 'unicode'])
+
 # Reserved Redis keys
 _ENTITY_GROUP_LOCK = '%(app)s!%(entity_group)s:\vLOCK'
 _KIND_INDEX        = '%(app)s!%(kind)s:\vKEYS'
@@ -64,6 +67,7 @@ _KIND_INDEX_KEYS   = '%(app)s!%(kind)s:\vINDEX_KEYS'
 _NEXT_ID           = '%(app)s!\vNEXT_ID'
 _PROPERTY_INDEX    = '%(app)s!%(kind)s:%(prop)s:%(encval)s:\vKEYS'
 _PROPERTY_ORDER    = '%(app)s!%(kind)s:%(prop)s:\vZKEYS'
+_PROPERTY_TYPES    = '%(app)s!%(kind)s:%(prop)s:\vTYPES'
 _PROPERTY_VALUE    = '%(key)s:%(prop)s'
 
 
@@ -401,6 +405,20 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         return str(value)
 
+    @staticmethod
+    def _GetPropertyDict(entity):
+        """Get property dictionary.
+
+        Args:
+            entity: entity_pb.EntityProto instance.
+
+        Returns:
+            Dictionary where property names are mapped to values.
+        """
+
+        v = datastore_types.FromPropertyPb
+        return dict([(p.name(), v(p)) for p in entity.property_list()])
+
     def _IndexEntity(self, entity):
         """Indexes a given entity.
 
@@ -436,6 +454,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             pipe.execute()
             return
 
+        prop_dict = self._GetPropertyDict(entity.protobuf)
+
         for prop in index_def.property_list():
             name = prop.name()
             value = self._GetRedisValueForValue(entity.native[name])
@@ -457,6 +477,17 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             except ValueError:
                 pass
 
+            # Property types
+            value_type = type(prop_dict[name]).__name__
+            prop_types = _PROPERTY_TYPES % {
+                'app': app, 'kind': kind, 'prop': name}
+            try:
+                f = _PROPERTY_VALUE_TYPES.index(value_type)
+            except ValueError:
+                f = -1
+            pipe = pipe.zadd(prop_types, value_type, f)
+            pipe = pipe.sadd(kind_indexes, prop_types)
+
             # Property values
             prop_key = _PROPERTY_VALUE % {'key': stored_key, 'prop': name}
             pipe = pipe.set(prop_key, value)
@@ -477,6 +508,11 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             kind = key.path().element_list()[-1].type()
             stored_key = self._GetRedisKeyForKey(key)
 
+            # Check whether we have an extinct kind.
+            ind = self.__db.sort(_KIND_INDEX % {'app': key.app(), 'kind': kind})
+            ind.remove(stored_key)
+            is_extinct_kind = len(ind) is 0
+
             kind_indexes = _KIND_INDEX_KEYS % {'app': key.app(), 'kind': kind}
             index_keys = self.__db.sort(kind_indexes) or []
 
@@ -488,6 +524,9 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                     pipe = pipe.srem(kind_indexes, index)
                 elif index.endswith(':\vZKEYS'):
                     pipe = pipe.zrem(index, stored_key)
+                    pipe = pipe.srem(kind_indexes, index)
+                elif index.endswith(':\vTYPES') and is_extinct_kind:
+                    pipe = pipe.delete(index)
                     pipe = pipe.srem(kind_indexes, index)
                 else:
                     pipe = pipe.srem(index, stored_key)
@@ -800,6 +839,17 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             for i in range(1, len(values)):
                 buffer = buffer & set(values[i] or [])
 
+        if orders:
+            pipe = self.__db.pipeline()
+            key_info = dict(app=app_id, kind=query.kind())
+            for order in orders:
+                key_info['prop'] = order.property()
+                pipe = pipe.sort(_PROPERTY_TYPES % key_info)
+            types = pipe.execute()
+            prop_val_types = {}
+            for i in range(len(orders)):
+                prop_val_types[order.property()] = types[i] 
+
         if buffer and orders:
             buf_id = uuid.uuid4()
 
@@ -814,7 +864,13 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                     desc = True
                 else:
                     desc = False
-                pipe = pipe.sort(buf_id, by='*:%s' % prop, desc=desc)
+                val_type = prop_val_types.get(order.property())
+                if set(val_type) & _REDIS_SORT_ALPHA_TYPES:
+                    alpha = True
+                else:
+                    alpha = False
+                pipe = pipe.sort(
+                    buf_id, by='*:%s' % prop, desc=desc, alpha=alpha)
 
             pipe = pipe.delete(buf_id)
 
