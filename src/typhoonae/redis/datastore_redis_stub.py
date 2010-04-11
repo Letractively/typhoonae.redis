@@ -58,7 +58,7 @@ _DATASTORE_OPERATORS = {
 }
 
 _PROPERTY_VALUE_TYPES = ['int', 'float', 'str', 'unicode']
-_REDIS_SORT_ALPHA_TYPES = frozenset(['str', 'unicode'])
+_REDIS_SORT_ALPHA_TYPES = frozenset(['str', 'unicode', 'datetime'])
 
 # Reserved Redis keys
 _ENTITY_GROUP_LOCK = '%(app)s!%(entity_group)s:\vLOCK'
