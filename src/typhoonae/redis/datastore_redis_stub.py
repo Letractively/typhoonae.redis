@@ -283,7 +283,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         Args:
             entity_group: An entity group.
         """
-        lock_info = dict(app=self.__app_id, entity_group=entity_group) 
+        lock_info = dict(app=self.__app_id, entity_group=entity_group)
         self.__db.delete(_ENTITY_GROUP_LOCK % lock_info)
 
     @staticmethod
@@ -300,7 +300,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         return dict(
             [(i.definition().entity_type(), i.definition()) for i in indexes])
-        
+
     @staticmethod
     def _GetAppIdNamespaceKindForKey(key):
         """Get encoded app and kind from given key.
@@ -634,13 +634,13 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                     self.__inside_tx = True
                     self.__transactions[request.transaction()] = entity_group
             self._AcquireLockForEntityGroup(entity_group)
-                    
+
         super(DatastoreRedisStub, self).MakeSyncCall(
             service, call, request, response)
 
         if call in ('Put', 'Delete'):
             if not request.has_transaction():
-                self._ReleaseLockForEntityGroup(entity_group) 
+                self._ReleaseLockForEntityGroup(entity_group)
 
         if call == 'Commit':
             self._ReleaseLockForEntityGroup(self.__transactions[request])
@@ -848,7 +848,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             types = pipe.execute()
             prop_val_types = {}
             for i in range(len(orders)):
-                prop_val_types[order.property()] = types[i] 
+                prop_val_types[order.property()] = types[i]
 
         if buffer and orders:
             buf_id = uuid.uuid4()
@@ -884,7 +884,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         else:
             if buffer:
                 result.extend(self.__db.mget(buffer))
-            
+
         if result:
             if query.keys_only():
                 query_result.result_list().extend(
@@ -954,7 +954,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         """Commit a transaction.
 
         Args:
-            transaction: A datastore_pb.Transaction instance. 
+            transaction: A datastore_pb.Transaction instance.
             response: A datastore_pb.CommitResponse instance.
         """
         self.__ValidateTransaction(transaction)
