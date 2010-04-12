@@ -496,3 +496,18 @@ class DatastoreRedisTestCase(unittest.TestCase):
         self.assertEqual(
             [u'Come Together', u'Here Comes The Sun', u'Something'],
             [song.title for song in query.run()])
+
+    def testUnicode(self):
+        """Tests unicode."""
+
+        class Employee(db.Model):
+            first_name = db.StringProperty(required=True)
+            last_name = db.StringProperty(required=True)
+
+        employee = Employee(first_name=u'Björn', last_name=u'Müller')
+        employee.put()
+
+        query = Employee.all(keys_only=True).filter('first_name =', u'Björn')
+        self.assertEqual(
+            datastore_types.Key.from_path(u'Employee', 1, _app=u'test'),
+            query.get())

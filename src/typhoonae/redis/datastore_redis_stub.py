@@ -409,6 +409,9 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             A string representation of the above Python value.
         """
 
+        if isinstance(value, basestring):
+            return value
+
         return str(value)
 
     @staticmethod
@@ -474,7 +477,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         for prop in index_def.property_list():
             name = prop.name()
             value = self._GetRedisValueForValue(entity.native[name])
-            digest = hashlib.md5(value).hexdigest()
+            digest = hashlib.md5(value.encode('utf-8')).hexdigest()
 
             key_info = dict(app=app, kind=kind, prop=name, encval=digest)
 
@@ -547,7 +550,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         for prop in index_def.property_list():
             name = prop.name()
             value = self._GetRedisValueForValue(entity.native[name])
-            digest = hashlib.md5(value).hexdigest()
+            digest = hashlib.md5(value.encode('utf-8')).hexdigest()
 
             key_info = dict(app=app, kind=kind, prop=name, encval=digest)
 
@@ -834,7 +837,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             val = datastore_types.FromPropertyPb(filt.property(0))
             op = _DATASTORE_OPERATORS[filt.op()]
 
-            digest = hashlib.md5(self._GetRedisValueForValue(val)).hexdigest()
+            digest = hashlib.md5(
+                self._GetRedisValueForValue(val).encode('utf-8')).hexdigest()
             key_info = dict(
                 app=app_id, kind=query.kind(), prop=prop, encval=digest)
 
