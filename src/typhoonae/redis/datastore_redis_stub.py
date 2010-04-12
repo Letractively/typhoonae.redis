@@ -65,7 +65,6 @@ _REDIS_SORT_ALPHA_TYPES = frozenset(['str', 'unicode', 'datetime'])
 # Reserved Redis keys
 _ENTITY_GROUP_LOCK = '%(app)s!%(entity_group)s:\vLOCK'
 _KIND_INDEX        = '%(app)s!%(kind)s:\vKEYS'
-_KIND_INDEX_KEYS   = '%(app)s!%(kind)s:\vINDEX_KEYS'
 _NEXT_ID           = '%(app)s!\vNEXT_ID'
 _PROPERTY_INDEX    = '%(app)s!%(kind)s:%(prop)s:%(encval)s:\vKEYS'
 _PROPERTY_ORDER    = '%(app)s!%(kind)s:%(prop)s:\vORDER'
@@ -104,6 +103,11 @@ class _StoredEntity(object):
         """Return datastore.Entity instance."""
 
         return datastore.Entity._FromPb(self.__protobuf)
+
+    def key(self):
+        """Return a entity_pb.Reference instance."""
+
+        return self.__protobuf.key()
 
 
 class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
@@ -438,7 +442,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         return long(w)
 
     def _IndexEntity(self, entity):
-        """Indexes a given entity.
+        """Index a given entity.
 
         Args:
             entity: A _StoredEntity instance.
@@ -451,22 +455,12 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         self.__ValidateAppId(app)
 
-        kind_indexes = _KIND_INDEX_KEYS % {'app': app, 'kind': kind}
-        index_keys = self.__db.sort(kind_indexes) or []
-
         stored_key = self._GetRedisKeyForKey(key)
 
         pipe = self.__db.pipeline()
 
-        for index in [k for k in index_keys if k.endswith(':\vKEYS')]:
-            pipe = pipe.srem(index, stored_key)
-
-        for index in [k for k in index_keys if k.endswith(':\vORDER')]:
-            pipe = pipe.zrem(index, stored_key)
-
         kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
         pipe = pipe.sadd(kind_index, stored_key)
-        pipe = pipe.sadd(kind_indexes, kind_index)
 
         index_def = self.__indexes.get(kind)
         if not index_def:
@@ -487,7 +481,6 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             # Property index
             prop_index = _PROPERTY_INDEX % key_info
             pipe = pipe.sadd(prop_index, stored_key)
-            pipe = pipe.sadd(kind_indexes, prop_index)
 
             # Property types
             value_type = type(prop_dict[name]).__name__
@@ -497,12 +490,10 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             except ValueError:
                 f = -1
             pipe = pipe.zadd(prop_types, value_type, f)
-            pipe = pipe.sadd(kind_indexes, prop_types)
 
             # Property values
             prop_key = _PROPERTY_VALUE % {'key': stored_key, 'prop': name}
             pipe = pipe.set(prop_key, value)
-            pipe = pipe.sadd(kind_indexes, prop_key)
 
             # Ordered values (buffers)
             if value_type in ('int', 'float'):
@@ -515,83 +506,71 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             prop_order = _PROPERTY_ORDER % {
                 'app': app, 'kind': kind, 'prop': name}
             pipe = pipe.zadd(prop_order, stored_key, f)
-            pipe = pipe.sadd(kind_indexes, prop_order)
 
         pipe.execute()
 
-        self._CleanupPropertyIndexes(kind_indexes, index_keys)
-
-    def _UpdateIndexesForKeys(self, keys):
-        """Update indexes for given keys.
+    def _UnindexEntityForKey(self, key):
+        """Unindex an entity.
 
         Args:
-            keys: List of entity_pb.Reference instances.
+            key: An entity_pb.Reference instance.
         """
+        app = key.app()
+        self.__ValidateAppId(app)
 
-        for key in keys:
-            kind = key.path().element_list()[-1].type()
-            stored_key = self._GetRedisKeyForKey(key)
+        kind = key.path().element_list()[-1].type()
 
-            # Check whether we have an extinct kind.
-            ind = self.__db.sort(_KIND_INDEX % {'app': key.app(), 'kind': kind})
-            ind.remove(stored_key)
-            is_extinct_kind = len(ind) is 0
+        stored_key = self._GetRedisKeyForKey(key)
+        entity_data = self.__db.get(stored_key)
 
-            kind_indexes = _KIND_INDEX_KEYS % {'app': key.app(), 'kind': kind}
-            index_keys = self.__db.sort(kind_indexes) or []
+        if not entity_data:
+            return
 
-            pipe = self.__db.pipeline()
+        entity_proto = entity_pb.EntityProto()
+        entity_proto.ParseFromString(entity_data)
+        entity = _StoredEntity(entity_proto)
 
-            for index in index_keys:
-                if index.startswith(stored_key):
-                    pipe = pipe.delete(index)
-                    pipe = pipe.srem(kind_indexes, index)
-                elif index.endswith(':\vORDER'):
-                    pipe = pipe.zrem(index, stored_key)
-                    pipe = pipe.srem(kind_indexes, index)
-                elif index.endswith(':\vTYPES') and is_extinct_kind:
-                    pipe = pipe.delete(index)
-                    pipe = pipe.srem(kind_indexes, index)
-                else:
-                    pipe = pipe.srem(index, stored_key)
+        pipe = self.__db.pipeline()
 
+        kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
+        pipe = pipe.srem(kind_index, stored_key)
+
+        index_def = self.__indexes.get(kind)
+        if not index_def:
             pipe.execute()
+            return
 
-            self._CleanupPropertyIndexes(kind_indexes, index_keys)
+        prop_dict = self._GetPropertyDict(entity.protobuf)
 
-    def _CleanupPropertyIndexes(self, kind_indexes_key, index_keys):
-        """Remove deleted property indexes from kind indexes set.
+        buffers = []
 
-        Args:
-            kind_indexes_key: Redis key which holds keys of indexes for a kind.
-            index_keys: Redis keys for indexes to remove if empty.
+        for prop in index_def.property_list():
+            name = prop.name()
+            value = self._GetRedisValueForValue(entity.native[name])
+            digest = hashlib.md5(value).hexdigest()
 
-        Returns:
-            Boolean whether clening property indexes succeeded.
-        """
-        pipe = self.__db.pipeline()
+            key_info = dict(app=app, kind=kind, prop=name, encval=digest)
 
-        hash_indexes = [idx for idx in index_keys if idx.endswith(':\vKEYS')]
+            # Property index
+            prop_index = _PROPERTY_INDEX % key_info
+            pipe = pipe.srem(prop_index, stored_key)
 
-        for index in hash_indexes:
-            pipe = pipe.exists(index)
+            # Property values
+            prop_key = _PROPERTY_VALUE % {'key': stored_key, 'prop': name}
+            pipe = pipe.delete(prop_key, value)
 
-        indexes = zip(hash_indexes, pipe.execute())
+            # Ordered values (buffers)
+            prop_order = _PROPERTY_ORDER % {
+                'app': app, 'kind': kind, 'prop': name}
+            pipe = pipe.zrem(prop_order, stored_key)
 
-        pipe = self.__db.pipeline()
-
-        for index, exists in indexes:
-            if not exists:
-                pipe = pipe.srem(kind_indexes_key, index)
-
-        return all(pipe.execute())
+        pipe.execute()
 
     def _WriteEntities(self):
         """Write stored entities to Redis backend.
 
         Uses a Redis Transaction.
         """
-
         new_ids = 0
         for app_kind in self.__entities_cache:
             for key in self.__entities_cache[app_kind]:
@@ -607,6 +586,12 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             self.__id_lock.release()
 
         index_entities = []
+
+        for app_kind in self.__entities_cache:
+            entities = self.__entities_cache[app_kind]
+            for key in entities:
+                if last_path.id() != 0 or last_path.has_name():
+                    self._UnindexEntityForKey(key)
 
         # Open a Redis pipeline to perform multiple commands at once.
         pipe = self.__db.pipeline()
@@ -778,6 +763,9 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         if delete_request.has_transaction():
             self.__ValidateTransaction(delete_request.transaction())
 
+        for key in delete_request.key_list():
+            self._UnindexEntityForKey(key)
+
         # Open a Redis pipeline to perform multiple commands at once.
         pipe = self.__db.pipeline()
 
@@ -794,8 +782,6 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         if not all(pipe.execute()):
             return
-
-        self._UpdateIndexesForKeys(delete_request.key_list())
 
     def _Dynamic_RunQuery(self, query, query_result):
         """Run given query.
