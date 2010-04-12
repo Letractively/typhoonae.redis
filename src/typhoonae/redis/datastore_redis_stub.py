@@ -34,6 +34,7 @@ from google.appengine.runtime import apiproxy_errors
 import hashlib
 import logging
 import redis
+import sys
 import threading
 import time
 import uuid
@@ -66,7 +67,7 @@ _KIND_INDEX        = '%(app)s!%(kind)s:\vKEYS'
 _KIND_INDEX_KEYS   = '%(app)s!%(kind)s:\vINDEX_KEYS'
 _NEXT_ID           = '%(app)s!\vNEXT_ID'
 _PROPERTY_INDEX    = '%(app)s!%(kind)s:%(prop)s:%(encval)s:\vKEYS'
-_PROPERTY_ORDER    = '%(app)s!%(kind)s:%(prop)s:\vZKEYS'
+_PROPERTY_ORDER    = '%(app)s!%(kind)s:%(prop)s:\vORDER'
 _PROPERTY_TYPES    = '%(app)s!%(kind)s:%(prop)s:\vTYPES'
 _PROPERTY_VALUE    = '%(key)s:%(prop)s'
 
@@ -442,7 +443,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         for index in [k for k in index_keys if k.endswith(':\vKEYS')]:
             pipe = pipe.srem(index, stored_key)
-        for index in [k for k in index_keys if k.endswith(':\vZKEYS')]:
+
+        for index in [k for k in index_keys if k.endswith(':\vORDER')]:
             pipe = pipe.zrem(index, stored_key)
 
         kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
@@ -456,31 +458,23 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         prop_dict = self._GetPropertyDict(entity.protobuf)
 
+        buffers = []
+
         for prop in index_def.property_list():
             name = prop.name()
             value = self._GetRedisValueForValue(entity.native[name])
             digest = hashlib.md5(value).hexdigest()
 
+            key_info = dict(app=app, kind=kind, prop=name, encval=digest)
+
             # Property index
-            prop_index = _PROPERTY_INDEX % {
-                'app': app, 'kind': kind, 'prop': name, 'encval': digest}
+            prop_index = _PROPERTY_INDEX % key_info
             pipe = pipe.sadd(prop_index, stored_key)
             pipe = pipe.sadd(kind_indexes, prop_index)
 
-            # Property order
-            try:
-                f = float(value)
-                prop_order = _PROPERTY_ORDER % {
-                    'app': app, 'kind': kind, 'prop': name}
-                pipe = pipe.zadd(prop_order, stored_key, f)
-                pipe = pipe.sadd(kind_indexes, prop_order)
-            except ValueError:
-                pass
-
             # Property types
             value_type = type(prop_dict[name]).__name__
-            prop_types = _PROPERTY_TYPES % {
-                'app': app, 'kind': kind, 'prop': name}
+            prop_types = _PROPERTY_TYPES % key_info
             try:
                 f = _PROPERTY_VALUE_TYPES.index(value_type)
             except ValueError:
@@ -493,7 +487,48 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             pipe = pipe.set(prop_key, value)
             pipe = pipe.sadd(kind_indexes, prop_key)
 
+            # Ordered values (buffers)
+            try:
+                f = float(value)
+                prop_order = _PROPERTY_ORDER % {
+                    'app': app, 'kind': kind, 'prop': name}
+                pipe = pipe.zadd(prop_order, stored_key, f)
+                pipe = pipe.sadd(kind_indexes, prop_order)
+            except ValueError:
+                pass
+
+            buf_id = uuid.uuid4()
+            if value_type in _REDIS_SORT_ALPHA_TYPES:
+                alpha = True
+            else:
+                alpha = False
+            pipe = pipe.sort(
+                kind_index, by='*:%s' % name, alpha=alpha, store=buf_id)
+            buffers.append(buf_id)
+
         pipe.execute()
+
+        # Build order indexes. This can be very expensive.
+        for n in range(len(buffers)):
+            prop = index_def.property(n)
+            name = prop.name()
+
+            buf_id = buffers[n]
+            if type(prop_dict[name]).__name__ in ('int', 'float'):
+                self.__db.delete(buf_id)
+                continue
+
+            l = self.__db.llen(buf_id)
+            key_info = dict(app=app, kind=kind, prop=name)
+            prop_order = _PROPERTY_ORDER % key_info
+            self.__db.delete(prop_order)
+            keys = self.__db.lrange(buf_id, 0, -1)
+            pipe = self.__db.pipeline()
+            for i in range(len(keys)):
+                pipe = pipe.zadd(prop_order, keys[i], i)
+            pipe.execute()
+            self.__db.delete(buf_id)
+            self.__db.sadd(kind_indexes, prop_order)
 
         self._CleanupPropertyIndexes(kind_indexes, index_keys)
 
@@ -522,7 +557,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 if index.startswith(stored_key):
                     pipe = pipe.delete(index)
                     pipe = pipe.srem(kind_indexes, index)
-                elif index.endswith(':\vZKEYS'):
+                elif index.endswith(':\vORDER'):
                     pipe = pipe.zrem(index, stored_key)
                     pipe = pipe.srem(kind_indexes, index)
                 elif index.endswith(':\vTYPES') and is_extinct_kind:
@@ -827,7 +862,26 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             digest = hashlib.md5(self._GetRedisValueForValue(val)).hexdigest()
             key_info = dict(
                 app=app_id, kind=query.kind(), prop=prop, encval=digest)
-            pipe = pipe.sort(_PROPERTY_INDEX % key_info)
+            if op in ('<', '<='):
+                prop_order = _PROPERTY_ORDER % key_info
+                keys = self.__db.sort(_PROPERTY_INDEX % key_info)
+                if keys:
+                    key = keys[0]
+                    score = float(self.__db.zscore(prop_order, key))-1
+                else:
+                    score = float(val)
+                pipe = pipe.zrangebyscore(prop_order, 0, score)
+            elif op in ('>', '>='):
+                prop_order = _PROPERTY_ORDER % key_info
+                keys = self.__db.sort(_PROPERTY_INDEX % key_info)
+                if keys:
+                    key = keys[-1]
+                    score = float(self.__db.zscore(prop_order, key))+1
+                else:
+                    score = float(val)
+                pipe = pipe.zrangebyscore(prop_order, score, float(sys.maxint))
+            else:
+                pipe = pipe.sort(_PROPERTY_INDEX % key_info)
 
         values = pipe.execute()
         if values:
