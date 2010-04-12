@@ -818,20 +818,16 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         for filt in filters:
             assert filt.op() != datastore_pb.Query_Filter.IN
+            assert len(filt.property_list()) == 1
 
             prop = filt.property(0).name().decode('utf-8')
+            val = datastore_types.FromPropertyPb(filt.property(0))
             op = _DATASTORE_OPERATORS[filt.op()]
 
-            property_list = [
-                (p.name(), datastore_types.FromPropertyPb(p))
-                for p in filt.property_list()]
-
-            for prop, val in property_list:
-                digest = hashlib.md5(
-                    self._GetRedisValueForValue(val)).hexdigest()
-                key_info = dict(
-                    app=app_id, kind=query.kind(), prop=prop, encval=digest)
-                pipe = pipe.sort(_PROPERTY_INDEX % key_info)
+            digest = hashlib.md5(self._GetRedisValueForValue(val)).hexdigest()
+            key_info = dict(
+                app=app_id, kind=query.kind(), prop=prop, encval=digest)
+            pipe = pipe.sort(_PROPERTY_INDEX % key_info)
 
         values = pipe.execute()
         if values:
