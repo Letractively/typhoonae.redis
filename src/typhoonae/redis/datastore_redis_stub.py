@@ -34,6 +34,7 @@ from google.appengine.runtime import apiproxy_errors
 import hashlib
 import logging
 import redis
+import string
 import sys
 import threading
 import time
@@ -420,6 +421,22 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         v = datastore_types.FromPropertyPb
         return dict([(p.name(), v(p)) for p in entity.property_list()])
 
+    @staticmethod
+    def _WeightOfString(data):
+        """Get a calculated weight for a given string.
+
+        Args:
+            data: String data.
+        """
+        w = ''
+        for c in data:
+            sw = string.zfill(ord(c), 3)
+            w += sw
+
+        # 3 * lenght of max sort depth
+        w = w+((3*32)-len(w))*'0'
+        return long(w)
+
     def _IndexEntity(self, entity):
         """Indexes a given entity.
 
@@ -488,47 +505,19 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             pipe = pipe.sadd(kind_indexes, prop_key)
 
             # Ordered values (buffers)
-            try:
+            if value_type in ('int', 'float'):
                 f = float(value)
-                prop_order = _PROPERTY_ORDER % {
-                    'app': app, 'kind': kind, 'prop': name}
-                pipe = pipe.zadd(prop_order, stored_key, f)
-                pipe = pipe.sadd(kind_indexes, prop_order)
-            except ValueError:
-                pass
-
-            buf_id = uuid.uuid4()
-            if value_type in _REDIS_SORT_ALPHA_TYPES:
-                alpha = True
+            elif value_type in ('str', 'unicode'):
+                f = self._WeightOfString(value)
             else:
-                alpha = False
-            pipe = pipe.sort(
-                kind_index, by='*:%s' % name, alpha=alpha, store=buf_id)
-            buffers.append(buf_id)
+                f = 0
+
+            prop_order = _PROPERTY_ORDER % {
+                'app': app, 'kind': kind, 'prop': name}
+            pipe = pipe.zadd(prop_order, stored_key, f)
+            pipe = pipe.sadd(kind_indexes, prop_order)
 
         pipe.execute()
-
-        # Build order indexes. This can be very expensive.
-        for n in range(len(buffers)):
-            prop = index_def.property(n)
-            name = prop.name()
-
-            buf_id = buffers[n]
-            if type(prop_dict[name]).__name__ in ('int', 'float'):
-                self.__db.delete(buf_id)
-                continue
-
-            l = self.__db.llen(buf_id)
-            key_info = dict(app=app, kind=kind, prop=name)
-            prop_order = _PROPERTY_ORDER % key_info
-            self.__db.delete(prop_order)
-            keys = self.__db.lrange(buf_id, 0, -1)
-            pipe = self.__db.pipeline()
-            for i in range(len(keys)):
-                pipe = pipe.zadd(prop_order, keys[i], i)
-            pipe.execute()
-            self.__db.delete(buf_id)
-            self.__db.sadd(kind_indexes, prop_order)
 
         self._CleanupPropertyIndexes(kind_indexes, index_keys)
 
@@ -862,24 +851,29 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             digest = hashlib.md5(self._GetRedisValueForValue(val)).hexdigest()
             key_info = dict(
                 app=app_id, kind=query.kind(), prop=prop, encval=digest)
+
             if op in ('<', '<='):
                 prop_order = _PROPERTY_ORDER % key_info
                 keys = self.__db.sort(_PROPERTY_INDEX % key_info)
                 if keys:
                     key = keys[0]
-                    score = float(self.__db.zscore(prop_order, key))-1
+                    score = long(self.__db.zscore(prop_order, key)-10**90)
+                    pipe = pipe.zrangebyscore(prop_order, 0, score)
                 else:
                     score = float(val)
-                pipe = pipe.zrangebyscore(prop_order, 0, score)
+                    pipe = pipe.zrangebyscore(prop_order, 0.0, score)
             elif op in ('>', '>='):
                 prop_order = _PROPERTY_ORDER % key_info
                 keys = self.__db.sort(_PROPERTY_INDEX % key_info)
                 if keys:
                     key = keys[-1]
-                    score = float(self.__db.zscore(prop_order, key))+1
+                    score = long(self.__db.zscore(prop_order, key)+10**90)
+                    pipe = pipe.zrangebyscore(
+                        prop_order, score, int('1'+''.zfill(95)))
                 else:
                     score = float(val)
-                pipe = pipe.zrangebyscore(prop_order, score, float(sys.maxint))
+                    pipe = pipe.zrangebyscore(
+                        prop_order, score, float(sys.maxint))
             else:
                 pipe = pipe.sort(_PROPERTY_INDEX % key_info)
 
@@ -926,7 +920,6 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
             status = pipe.execute()
             assert status[-1]
-
             buffer = status[(len(orders)+1)*-1]
 
         if query.keys_only():
