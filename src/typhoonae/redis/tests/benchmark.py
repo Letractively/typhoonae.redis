@@ -32,14 +32,38 @@ import typhoonae.redis.datastore_redis_stub
 INDEX_DEFINITIONS = """
 indexes:
 
-- kind: MyModel
+- kind: FirstModel
   properties:
-  - name: value
+  - name: prop1
+  - name: prop2
+  - name: prop3
+  - name: prop4
+  - name: prop5
+
+- kind: SecondModel
+  properties:
+  - name: prop1
+  - name: prop2
+  - name: prop3
+  - name: prop4
+  - name: prop5
 """
 
 
-class MyModel(db.Model):
-    value = db.StringProperty()
+class FirstModel(db.Model):
+    prop1 = db.IntegerProperty()
+    prop2 = db.StringProperty()
+    prop3 = db.IntegerProperty()
+    prop4 = db.StringProperty()
+    prop5 = db.IntegerProperty()
+
+
+class SecondModel(db.Model):
+    prop1 = db.IntegerProperty()
+    prop2 = db.StringProperty()
+    prop3 = db.IntegerProperty()
+    prop4 = db.StringProperty()
+    prop5 = db.IntegerProperty()
 
 
 def get_datastore_stub():
@@ -77,17 +101,15 @@ def get_datastore_stub():
         'datastore_v3')
 
 
-def add_random_entities(num, integer=False):
+def add_random_entities(num, kind):
     r = random.Random()
     numbers = range(1000)
     chars = [' ']+[chr(i) for i in range(65, 104)]
     for n in range(num):
-        if integer:
-            data = r.sample(numbers, 1).pop() 
-        else:
-            data = ''.join(r.sample(chars[:40], 40))*2
+        s = ''.join(r.sample(chars[:40], 40))*2
+        i = r.sample(numbers, 1).pop() 
 
-        entity = MyModel(value=data)
+        entity = kind(prop1=i, prop2=s, prop3=i, prop4=s, prop5=i)
         entity.put()
 
 
@@ -97,41 +119,46 @@ def main():
     except IndexError:
         rounds = 1
     stub = get_datastore_stub()
-    num = 100
+    num = 200
 
-    for round in range(rounds):
-        print "Round %i" % (round+1)
-        print "------" + "-" * len('%i' % (round+1))
+    for kind in (FirstModel, SecondModel):
+        for round in range(rounds):
+            print "Round %i" % (round+1)
+            print "------" + "-" * len('%i' % (round+1))
 
-        sys.stdout.write("Adding %i entities with random data... " % num)
-        sys.stdout.flush()
-        start = time.time()
-        add_random_entities(num)
-        end = time.time()
-        result = end-start
-        if result < 1.0:
-            print result * 1000.0, "ms"
-        else:
-            print result, "sec"
+            sys.stdout.write("Adding %i entities with random data... " % num)
+            sys.stdout.flush()
+            start = time.time()
+            add_random_entities(num, kind)
+            end = time.time()
+            result = end-start
+            if result < 1.0:
+                print result * 1000.0, "ms"
+            else:
+                print result, "sec"
 
-        print 100/result, "entities/sec"
+            print num/result, "entities/sec"
 
-        sys.stdout.write("Querying entities ordered by 'value'... ")
-        query = MyModel.all().order('value')
-        start = time.time()
-        results = list(query.fetch(1000))
-        end = time.time()
-        assert len(results) > 0 and len(results) <= 1000
-        print (end-start) * 1000.0, "ms"
-        print
+            sys.stdout.write("Querying entities ordered by 'prop1'... ")
+            query = db.GqlQuery(
+                "SELECT * FROM %s ORDER BY prop1" % kind.__name__)
+            start = time.time()
+            results = list(query.fetch(1000))
+            end = time.time()
+            assert len(results) > 0 and len(results) <= 1000
+            result = end-start
+            if result < 1.0:
+                print result * 1000.0, "ms"
+            else:
+                print result, "sec"
+            print
 
     print "Stats"
     print "-----"
-    print "Total number of entities in datastore:", rounds*100
-    db = stub.__dict__['_DatastoreRedisStub__db']
-    print "Total number of keys in database:", len(db.keys())
+    datastore = stub.__dict__['_DatastoreRedisStub__db']
+    print "Total number of keys in database:", len(datastore.keys())
 
-    stub.Clear()
+    #stub.Clear()
 
 if __name__ == "__main__":
     main()
