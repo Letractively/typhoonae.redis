@@ -429,8 +429,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         return dict([(p.name(), v(p)) for p in entity.property_list()])
 
     @staticmethod
-    def _WeightOfString(data):
-        """Get a calculated weight for a given string.
+    def _CalculateScoreForString(data):
+        """Get a calculated score for a given string.
 
         Args:
             data: String data.
@@ -502,7 +502,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             if value_type in ('int', 'float'):
                 f = float(value)
             elif value_type in ('str', 'unicode'):
-                f = self._WeightOfString(value)
+                f = self._CalculateScoreForString(value)
             else:
                 f = 0
 
@@ -842,28 +842,42 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             key_info = dict(
                 app=app_id, kind=query.kind(), prop=prop, encval=digest)
 
-            if op in ('<', '<='):
-                prop_order = _PROPERTY_ORDER % key_info
-                keys = self.__db.sort(_PROPERTY_INDEX % key_info)
-                if keys:
-                    key = keys[0]
-                    score = long(self.__db.zscore(prop_order, key)-10**90)
-                    pipe = pipe.zrangebyscore(prop_order, 0, score)
-                else:
-                    score = float(val)
+            # TODO Inequality filter implementation needs to be refactored.
+            if type(val) in (int, long, float):
+                score = float(val)
+            elif isinstance(val, basestring):
+                score = self._CalculateScoreForString(val)
+            else:
+                score = -1
+
+            prop_order = _PROPERTY_ORDER % key_info
+
+            if op == '<':
+                if type(val) in (int, long, float):
                     pipe = pipe.zrangebyscore(prop_order, 0.0, score)
-            elif op in ('>', '>='):
-                prop_order = _PROPERTY_ORDER % key_info
-                keys = self.__db.sort(_PROPERTY_INDEX % key_info)
-                if keys:
-                    key = keys[-1]
-                    score = long(self.__db.zscore(prop_order, key)+10**90)
+                else:
+                    score = long(score-10**90)
+                    pipe = pipe.zrangebyscore(prop_order, 0, score)
+            elif op == '<=':
+                if type(val) in (int, long, float):
+                    pipe = pipe.zrangebyscore(prop_order, 0.0, score)
+                else:
+                    score = long(score)
+                    pipe = pipe.zrangebyscore(prop_order, 0, score)
+            elif op == '>':
+                if type(val) in (int, long, float):
+                    pipe = pipe.zrangebyscore(prop_order, score, sys.maxint)
+                else:
+                    score = long(score+10**90)
                     pipe = pipe.zrangebyscore(
                         prop_order, score, int('1'+''.zfill(95)))
+            elif op == '>=':
+                if type(val) in (int, long, float):
+                    pipe = pipe.zrangebyscore(prop_order, score, sys.maxint)
                 else:
-                    score = float(val)
+                    score = long(score)
                     pipe = pipe.zrangebyscore(
-                        prop_order, score, float(sys.maxint))
+                        prop_order, score, int('1'+''.zfill(95)))
             else:
                 pipe = pipe.sort(_PROPERTY_INDEX % key_info)
 
@@ -910,6 +924,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
             status = pipe.execute()
             assert status[-1]
+
+            # TODO Allow more than one orders.
             buffer = status[(len(orders)+1)*-1]
 
         if query.keys_only():
@@ -928,6 +944,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         # Pupulating the query result.
         query_result.mutable_cursor().set_app(app_id)
+        # TODO Query cursors.
         query_result.mutable_cursor().set_cursor(0)
         query_result.set_keys_only(query.keys_only())
         query_result.set_more_results(False)
