@@ -18,8 +18,8 @@
 This code reuses substantial portions of the datastore_file_stub.py from the
 Google App Engine SDK.
 
-Unlike the file stub's implementation it is suitable for larger production
-data and handles concurrency.
+Unlike the file stub's implementation it is designed to handle larger amounts
+of production data and concurrency.
 """
 
 from google.appengine.api import apiproxy_stub
