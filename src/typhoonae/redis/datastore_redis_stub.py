@@ -491,7 +491,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             try:
                 f = _PROPERTY_VALUE_TYPES.index(value_type)
             except ValueError:
-                f = -1
+                f = sys.maxint
             pipe = pipe.zadd(prop_types, value_type, f)
 
             # Property values
@@ -848,7 +848,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             elif isinstance(val, basestring):
                 score = self._CalculateScoreForString(val)
             else:
-                score = -1
+                score = 0
 
             prop_order = _PROPERTY_ORDER % key_info
 
