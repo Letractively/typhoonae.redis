@@ -337,7 +337,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             if elem.has_name():
                 e += '\x08' + elem.name()
             else:
-                e += '\x08\t' + str(elem.id()).zfill(10)
+                e += '\x08\t' + str(elem.id()).zfill(13)
             path.append(e)
         map(add_elem_to_path, key.path().element_list())
         return "%s!%s" % (key.app(), "/".join(path))
@@ -574,25 +574,12 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         Uses a Redis Transaction.
         """
-        new_ids = 0
-        for app_kind in self.__entities_cache:
-            for key in self.__entities_cache[app_kind]:
-                last_path = key.path().element_list()[-1]
-                if last_path.id() == 0 and not last_path.has_name():
-                    new_ids += 1
-
-        if new_ids:
-            # Allocate integer ID range.
-            self.__id_lock.acquire()
-            max_id = int(self.__db.incr(self.__next_id_key, new_ids))
-            self.__next_id = max_id - new_ids
-            self.__id_lock.release()
-
         index_entities = []
 
         for app_kind in self.__entities_cache:
             entities = self.__entities_cache[app_kind]
             for key in entities:
+                last_path = key.path().element_list()[-1]
                 if last_path.id() != 0 or last_path.has_name():
                     self._UnindexEntityForKey(key)
 
@@ -602,21 +589,9 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         for app_kind in self.__entities_cache:
             entities = self.__entities_cache[app_kind]
             for key in entities:
-
                 entity = entities[key]
-
-                last_path = key.path().element_list()[-1]
-                if last_path.id() == 0 and not last_path.has_name():
-                    # Update sequential integer ID.
-                    self.__id_lock.acquire()
-                    last_path.set_id(self.__next_id)
-                    self.__next_id += 1
-                    self.__id_lock.release()
-
                 stored_key = self._GetRedisKeyForKey(key)
-
                 pipe = pipe.set(stored_key, entity.encoded_protobuf)
-
                 index_entities.append(entity)
 
         # Only index successfully written entities.
@@ -645,7 +620,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                         and not self.__inside_tx):
                     self.__inside_tx = True
                     self.__transactions[request.transaction()] = entity_group
-            self._AcquireLockForEntityGroup(entity_group)
+                    self._AcquireLockForEntityGroup(entity_group)
 
         super(DatastoreRedisStub, self).MakeSyncCall(
             service, call, request, response)
@@ -711,6 +686,11 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
             last_path = clone.key().path().element_list()[-1]
             if last_path.id() == 0 and not last_path.has_name():
+                self.__id_lock.acquire()
+                last_path.set_id(self.__next_id)
+                self.__next_id = int(self.__db.incr(self.__next_id_key))
+                self.__id_lock.release()
+
                 assert clone.entity_group().element_size() == 0
                 group = clone.mutable_entity_group()
                 root = clone.key().path().element(0)
@@ -778,7 +758,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             stored_key = self._GetRedisKeyForKey(key)
 
             if delete_request.has_transaction():
-                del self.__entities_cache[key.app()][key]
+                app_kind = self._GetAppIdNamespaceKindForKey(key)
+                del self.__entities_cache[app_kind][key]
                 continue
 
             pipe = pipe.delete(stored_key)

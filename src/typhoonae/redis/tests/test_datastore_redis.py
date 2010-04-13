@@ -117,7 +117,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
         """Inititalizes an entity_pb.Reference from a Redis key."""
 
         key = self.stub._GetKeyForRedisKey(
-            u'test!Foo\x08\t0000000002/Bar\x08bar')
+            u'test!Foo\x08\t0000000000002/Bar\x08bar')
 
         self.assertEqual(
             datastore_types.Key.from_path(
@@ -139,7 +139,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
         elem.set_id(2)
 
         self.assertEqual(
-            u'test!Foo\x08\t0000000001/Bar\x08\t0000000002',
+            u'test!Foo\x08\t0000000000001/Bar\x08\t0000000000002',
             self.stub._GetRedisKeyForKey(ref))
 
     def testPutGetDelete(self):
@@ -228,6 +228,29 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         counter = Counter.get_by_key_name('counter')
         self.assertEqual(1000, counter.value)
+
+    def testLargerTransaction(self):
+        """Executes multiple operations in one transaction."""
+
+        class Author(db.Model):
+            name = db.StringProperty()
+
+        class Book(db.Model):
+            title = db.StringProperty()
+
+        def tx():
+            a = Author(name='Mark Twain', key_name='marktwain')
+            a.put()
+
+            b = Book(parent=a, title="The Adventures Of Tom Sawyer")
+            b.put()
+
+            b.delete()
+
+        db.run_in_transaction(tx)
+
+        self.assertEqual(1, Author.all().count())
+        self.assertEqual(0, Book.all().count())
 
     def testRunQuery(self):
         """Runs some simple queries."""
