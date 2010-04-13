@@ -1,5 +1,14 @@
 indexes:
 
+- kind: Author
+  ancestor: yes
+  properties:
+  - name: name
+
+- kind: Book
+  properties:
+  - name: title
+
 - kind: Employee
   properties:
   - name: first_name
