@@ -158,9 +158,6 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         # Sequential IDs.
         self.__next_id_key = _NEXT_ID % {'app': self.__app_id}
         self.__next_id = int(self.__db.get(self.__next_id_key) or 0)
-        if self.__next_id == 0:
-            self.__next_id += 1
-            self.__db.incr(self.__next_id_key)
         self.__id_lock = threading.Lock()
 
         # Transaction set, snapshot and handles.
@@ -687,8 +684,11 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             last_path = clone.key().path().element_list()[-1]
             if last_path.id() == 0 and not last_path.has_name():
                 self.__id_lock.acquire()
+                pipe = self.__db.pipeline()
+                pipe.incr(self.__next_id_key)
+                next_id = int(pipe.execute().pop() or 0)
+                self.__next_id = next_id
                 last_path.set_id(self.__next_id)
-                self.__next_id = int(self.__db.incr(self.__next_id_key))
                 self.__id_lock.release()
 
                 assert clone.entity_group().element_size() == 0
