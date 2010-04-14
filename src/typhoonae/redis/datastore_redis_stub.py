@@ -67,7 +67,6 @@ _ENTITY_GROUP_LOCK = '%(app)s!%(entity_group)s:\vLOCK'
 _KIND_INDEX        = '%(app)s!%(kind)s:\vKEYS'
 _NEXT_ID           = '%(app)s!\vNEXT_ID'
 _PROPERTY_INDEX    = '%(app)s!%(kind)s:%(prop)s:%(encval)s:\vKEYS'
-_PROPERTY_ORDER    = '%(app)s!%(kind)s:%(prop)s:\vORDER'
 _PROPERTY_TYPES    = '%(app)s!%(kind)s:%(prop)s:\vTYPES'
 _PROPERTY_VALUE    = '%(key)s:%(prop)s'
 
@@ -425,22 +424,6 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         v = datastore_types.FromPropertyPb
         return dict([(p.name(), v(p)) for p in entity.property_list()])
 
-    @staticmethod
-    def _CalculateScoreForString(data):
-        """Get a calculated score for a given string.
-
-        Args:
-            data: String data.
-        """
-        w = ''
-        for c in data:
-            sw = string.zfill(ord(c), 3)
-            w += sw
-
-        # 3 * lenght of max sort depth
-        w = w+((3*32)-len(w))*'0'
-        return long(w)
-
     def _IndexEntity(self, entity):
         """Index a given entity.
 
@@ -495,18 +478,6 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             prop_key = _PROPERTY_VALUE % {'key': stored_key, 'prop': name}
             pipe = pipe.set(prop_key, value)
 
-            # Ordered values (buffers)
-            if value_type in ('int', 'float'):
-                f = float(value)
-            elif value_type in ('str', 'unicode'):
-                f = self._CalculateScoreForString(value)
-            else:
-                f = 0
-
-            prop_order = _PROPERTY_ORDER % {
-                'app': app, 'kind': kind, 'prop': name}
-            pipe = pipe.zadd(prop_order, stored_key, f)
-
         pipe.execute()
 
     def _UnindexEntityForKey(self, key):
@@ -559,12 +530,47 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             prop_key = _PROPERTY_VALUE % {'key': stored_key, 'prop': name}
             pipe = pipe.delete(prop_key, value)
 
-            # Ordered values (buffers)
-            prop_order = _PROPERTY_ORDER % {
-                'app': app, 'kind': kind, 'prop': name}
-            pipe = pipe.zrem(prop_order, stored_key)
-
         pipe.execute()
+
+    @staticmethod
+    def _ApplyOperator(op, term, keys, values, return_keys=True):
+
+        def trycast(val):
+            if not isinstance(term, basestring) and isinstance(val, basestring):
+                try:
+                    return type(term)(val)
+                except ValueError:
+                    return float(val)
+            return val
+
+        values = [trycast(v) for v in values]
+
+        if return_keys:
+            ind = 0
+        else:
+            ind = 1
+        try:
+            i = values.index(term)
+            c = values.count(term)
+        except ValueError:
+            values.append(term)
+            values.sort()
+            i = values.index(term)
+            keys.insert(i, 'nil')
+            c = 1
+
+        s = [(keys[p], values[p]) for p in range(len(keys))]
+
+        if op == '<':
+            return [p[ind] for p in s[0:i]]
+        elif op == '>':
+            return [p[ind] for p in s[i+c:]]
+        elif op == '<=':
+            return [p[ind] for p in s[0:i+c] if p != ('nil', term)]
+        elif op == '>=':
+            return [p[ind] for p in s[i:] if p != ('nil', term)]
+        elif op == '==':
+            return [p[ind] for p in s if p[1] == term]
 
     def _WriteEntities(self):
         """Write stored entities to Redis backend.
@@ -802,13 +808,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         (filters, orders) = datastore_index.Normalize(
             query.filter_list(), query.order_list())
 
-        result = []
-
-        pipe = self.__db.pipeline()
-
-        if not filters:
-            key_info = dict(app=app_id, kind=query.kind())
-            pipe = pipe.sort(_KIND_INDEX % key_info)
+        filter_values = []
 
         for filt in filters:
             assert filt.op() != datastore_pb.Query_Filter.IN
@@ -823,50 +823,40 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             key_info = dict(
                 app=app_id, kind=query.kind(), prop=prop, encval=digest)
 
-            # TODO Inequality filter implementation needs to be refactored.
-            if type(val) in (int, long, float):
-                score = float(val)
-            elif isinstance(val, basestring):
-                score = self._CalculateScoreForString(val)
+            if isinstance(val, basestring):
+                alpha = True
             else:
-                score = 0
+                alpha = False
 
-            prop_order = _PROPERTY_ORDER % key_info
+            if op == '==':
+                filter_values.append(self.__db.sort(_PROPERTY_INDEX % key_info))
+                continue
 
-            if op == '<':
-                if type(val) in (int, long, float):
-                    pipe = pipe.zrangebyscore(prop_order, 0.0, score)
-                else:
-                    score = long(score-10**90)
-                    pipe = pipe.zrangebyscore(prop_order, 0, score)
-            elif op == '<=':
-                if type(val) in (int, long, float):
-                    pipe = pipe.zrangebyscore(prop_order, 0.0, score)
-                else:
-                    score = long(score)
-                    pipe = pipe.zrangebyscore(prop_order, 0, score)
-            elif op == '>':
-                if type(val) in (int, long, float):
-                    pipe = pipe.zrangebyscore(prop_order, score, sys.maxint)
-                else:
-                    score = long(score+10**90)
-                    pipe = pipe.zrangebyscore(
-                        prop_order, score, int('1'+''.zfill(95)))
-            elif op == '>=':
-                if type(val) in (int, long, float):
-                    pipe = pipe.zrangebyscore(prop_order, score, sys.maxint)
-                else:
-                    score = long(score)
-                    pipe = pipe.zrangebyscore(
-                        prop_order, score, int('1'+''.zfill(95)))
-            else:
-                pipe = pipe.sort(_PROPERTY_INDEX % key_info)
+            index = _KIND_INDEX % key_info
+            pattern = '*:' + prop
+            pipe = self.__db.pipeline()
+            pipe = pipe.sort(
+                index, by=pattern, start=0, num=1000, alpha=alpha)
+            pipe = pipe.sort(
+                index, by=pattern, get=pattern, start=0, num=1000, alpha=alpha)
+            keys, vals = pipe.execute()
 
-        values = pipe.execute()
-        if values:
-            buffer = set(values[0] or [])
-            for i in range(1, len(values)):
-                buffer = buffer & set(values[i] or [])
+            filter_values.append(self._ApplyOperator(op, val, keys, vals))
+
+        result = []
+
+        key_info = dict(app=app_id, kind=query.kind())
+
+        if not filters:
+            result.extend(
+                self.__db.sort(_KIND_INDEX % key_info, start=0, num=1000))
+
+        if filter_values:
+            buffer = set(filter_values[0] or [])
+            for i in range(1, len(filter_values)):
+                buffer = buffer & set(filter_values[i] or [])
+        else:
+            buffer = set(result)
 
         if orders:
             pipe = self.__db.pipeline()
@@ -909,6 +899,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             # TODO Allow more than one orders.
             buffer = status[(len(orders)+1)*-1]
 
+        result = []
         if query.keys_only():
             result.extend(buffer)
         else:
