@@ -420,7 +420,8 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         query = (Planet.all()
             .filter('moon_count <', 10)
-            .order('moon_count'))
+            .order('moon_count')
+            .order('name'))
 
         self.assertEqual(
             [u'Mercury', u'Venus', u'Earth', u'Mars'],
