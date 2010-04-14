@@ -43,10 +43,6 @@ indexes:
 - kind: SecondModel
   properties:
   - name: prop1
-  - name: prop2
-  - name: prop3
-  - name: prop4
-  - name: prop5
 """
 
 
@@ -119,14 +115,16 @@ def main():
     except IndexError:
         rounds = 1
     stub = get_datastore_stub()
-    num = 200
+    num = 1000
 
     for kind in (FirstModel, SecondModel):
         for round in range(rounds):
             print "Round %i" % (round+1)
             print "------" + "-" * len('%i' % (round+1))
 
-            sys.stdout.write("Adding %i entities with random data... " % num)
+            sys.stdout.write(
+                "Adding %i entities of %s with random data... "
+                % (num, kind.__name__))
             sys.stdout.flush()
             start = time.time()
             add_random_entities(num, kind)
@@ -137,20 +135,33 @@ def main():
             else:
                 print result, "sec"
 
-            print num/result, "entities/sec"
+            print "Performance:", num/result, "entities/sec"
 
-            sys.stdout.write("Querying entities ordered by 'prop1'... ")
-            query = db.GqlQuery(
-                "SELECT * FROM %s ORDER BY prop1" % kind.__name__)
+            qs = "SELECT __key__ FROM %s WHERE prop1 > 500 ORDER BY prop1"
+            sys.stdout.write(qs % kind.__name__ + '... ')
+            query = db.GqlQuery(qs % kind.__name__)
             start = time.time()
             results = list(query.fetch(1000))
             end = time.time()
-            assert len(results) > 0 and len(results) <= 1000
             result = end-start
             if result < 1.0:
                 print result * 1000.0, "ms"
             else:
                 print result, "sec"
+            print "Number of results: %i" % len(results)
+            qs = "SELECT * FROM %s WHERE prop1 > 500 ORDER BY prop1"
+            sys.stdout.write(qs % kind.__name__ + '... ')
+            query = db.GqlQuery(qs % kind.__name__)
+            start = time.time()
+            results = list(query.fetch(1000))
+            end = time.time()
+            result = end-start
+            if result < 1.0:
+                print result * 1000.0, "ms"
+            else:
+                print result, "sec"
+            print "Number of results: %i" % len(results)
+
             print
 
     print "Stats"
@@ -158,7 +169,7 @@ def main():
     datastore = stub.__dict__['_DatastoreRedisStub__db']
     print "Total number of keys in database:", len(datastore.keys())
 
-    #stub.Clear()
+    stub.Clear()
 
 if __name__ == "__main__":
     main()
