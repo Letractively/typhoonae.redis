@@ -22,9 +22,11 @@ indexes:
 
 - kind: Planet
   properties:
+  - name: name
+  - name: moon_count
   - name: distance
     direction: asc
-  - name: name
+
 
 - kind: Artist
   properties:

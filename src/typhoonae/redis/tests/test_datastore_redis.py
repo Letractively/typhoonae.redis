@@ -399,25 +399,31 @@ class DatastoreRedisTestCase(unittest.TestCase):
         """Tests queries with sorting."""
 
         class Planet(db.Model):
-            distance = db.FloatProperty()
             name = db.StringProperty()
+            moon_count = db.IntegerProperty()
+            distance = db.FloatProperty()
 
-        earth = Planet(distance=93.0, name="Earth")
+        earth = Planet(name="Earth", distance=93.0, moon_count=1)
         earth.put()
 
-        saturn = Planet(distance=886.7, name="Saturn")
+        saturn = Planet(name="Saturn", distance=886.7, moon_count=18)
         saturn.put()
 
-        venus = Planet(distance=67.2, name="Venus")
+        venus = Planet(name="Venus", distance=67.2, moon_count=0)
         venus.put()
 
-        mars = Planet(distance=141.6, name="Mars")
+        mars = Planet(name="Mars", distance=141.6, moon_count=2)
         mars.put()
 
-        query = Planet.all().order('distance')
+        mercury = Planet(name="Mercury", distance=36.0, moon_count=0)
+        mercury.put()
+
+        query = (Planet.all()
+            .filter('moon_count <', 10)
+            .order('moon_count'))
 
         self.assertEqual(
-            ['Venus', 'Earth', 'Mars', 'Saturn'],
+            [u'Mercury', u'Venus', u'Earth', u'Mars'],
             [planet.name for planet in query.run()]
         )
 
@@ -431,9 +437,18 @@ class DatastoreRedisTestCase(unittest.TestCase):
         query = Planet.all().filter('distance <=', 93).order('distance')
 
         self.assertEqual(
-            ['Venus', 'Earth'],
+            ['Mercury', 'Venus', 'Earth'],
             [planet.name for planet in query.run()]
         )
+
+        query = (Planet.all()
+            .filter('distance >', 80.0)
+            .filter('distance <', 150)
+            .order('distance'))
+
+        self.assertEqual(
+            ['Earth', 'Mars'],
+            [planet.name for planet in query.run()])
 
     def testQueriesWithMultipleFiltersAndOrders(self):
         """Tests queries with multiple filters and orders."""
