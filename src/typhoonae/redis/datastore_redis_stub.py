@@ -865,9 +865,10 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 key_info['prop'] = order.property()
                 pipe = pipe.sort(_PROPERTY_TYPES % key_info)
             types = pipe.execute()
-            prop_val_types = {}
+
+            prop_types = {}
             for i in range(len(orders)):
-                prop_val_types[order.property()] = types[i]
+                prop_types[orders[i].property().decode('utf-8')] = types[i]
 
         if buffer and orders:
             buf_id = uuid.uuid4()
@@ -878,26 +879,28 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 pipe = pipe.rpush(buf_id, elem)
 
             for order in orders:
-                prop = order.property()
+                prop = order.property().decode('utf-8')
                 if order.direction() == 2:
                     desc = True
                 else:
                     desc = False
-                val_type = prop_val_types.get(order.property())
-                if set(val_type) & _REDIS_SORT_ALPHA_TYPES:
+
+                prop_type = prop_types.get(prop)
+                if set(prop_type) & _REDIS_SORT_ALPHA_TYPES:
                     alpha = True
                 else:
                     alpha = False
+
+                pattern = '*:%s' % prop
                 pipe = pipe.sort(
-                    buf_id, by='*:%s' % prop, desc=desc, alpha=alpha)
+                    buf_id, by=pattern, desc=desc, alpha=alpha)
 
             pipe = pipe.delete(buf_id)
 
             status = pipe.execute()
             assert status[-1]
-
-            # TODO Allow more than one orders.
-            buffer = status[(len(orders)+1)*-1]
+            status.pop()
+            buffer = status[-(len(orders))]
 
         result = []
         if query.keys_only():
