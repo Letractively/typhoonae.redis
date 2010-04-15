@@ -1002,7 +1002,13 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         query_result.set_more_results(False)
 
     def _Dynamic_Next(self, next_request, query_result):
-        """ """
+        """Gets the next batch of query results.
+
+        Args:
+            next_request: A datastore_pb.NextRequest instance.
+            query_result: A datastore_pb.QueryResult instance.
+        """
+        raise NotImplementedError
 
     def _Dynamic_Count(self, query, integer64proto):
         """Count the number of query results.
@@ -1076,8 +1082,17 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         finally:
             self.__tx_actions = []
 
-    def _Dynamic_Rollback(self, transaction, transaction_response):
-        """ """
+    def _Dynamic_Rollback(self, transaction, unused_response):
+        """Perform a rollback of the current transaction.
+
+        Args:
+            transaction: A datastore_pb.Transaction instance.
+            unused_response: An api_base_pb.VoidProto instance.
+        """
+        self.__ValidateTransaction(transaction)
+
+        self.__entities_cache = {}
+        self.__tx_actions = []
 
     def _Dynamic_GetSchema(self, req, schema):
         """ """
