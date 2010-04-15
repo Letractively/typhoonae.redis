@@ -773,6 +773,59 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         if not all(pipe.execute()):
             return
 
+    @staticmethod
+    def _ApplyOrderRulesToResults(rules, *results):
+        maps = []
+        for i in range(0, len(results), 2):
+            maps.append((results[i], results[i+1]))
+    
+        dicts = []
+        r = 0
+        for m in maps:
+            d = dict()
+            for i, v in enumerate(m[0]):
+                val = m[1][i]
+                prop, direction, types = rules[r]
+                t = eval(types[0])
+                if not isinstance(val, t):
+                    val = t(val)
+                d[v] = val
+            r += 1
+            dicts.append(d)
+    
+        tuples = []
+        for k in results[0]:
+            tuples.append(tuple([k]+[dicts[i][k] for i in range(len(dicts))]))
+    
+        entities = []
+    
+        for t in tuples:
+            ent = {'key': t[0]}
+            for i in range(0, len(rules)):
+                prop, direction, types = rules[i]
+                ent[prop]=t[i+1]
+            entities.append(ent)
+    
+        def compare_entities(a, b):
+            compared = 0
+            for rule in rules:
+                prop, direction, types = rule
+    
+                compared = cmp(a[prop], b[prop])
+    
+                if (direction is 2):
+                    compared = -compared
+    
+                if compared != 0:
+                    return compared
+    
+            if compared == 0:
+                return cmp(a['key'], b['key'])
+    
+    
+        return [e['key'] for e in sorted(entities, compare_entities)]
+
+
     def _Dynamic_RunQuery(self, query, query_result):
         """Run given query.
 
@@ -891,16 +944,21 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 else:
                     alpha = False
 
-                pattern = '*:%s' % prop
+                pattern = '*:' + prop
                 pipe = pipe.sort(
                     buf_id, by=pattern, desc=desc, alpha=alpha)
+                pipe = pipe.sort(
+                    buf_id, by=pattern, get=pattern, desc=desc, alpha=alpha)
 
             pipe = pipe.delete(buf_id)
 
             status = pipe.execute()
             assert status[-1]
             status.pop()
-            buffer = status[-(len(orders))]
+            rules = [(o.property(), o.direction(), prop_types[o.property()])
+                for o in orders]
+            buffer = self._ApplyOrderRulesToResults(
+                rules, *status[-(len(orders)*2):])
 
         result = []
         if query.keys_only():
