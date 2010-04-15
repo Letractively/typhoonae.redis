@@ -533,7 +533,18 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         pipe.execute()
 
     @staticmethod
-    def _ApplyOperator(op, term, keys, values, return_keys=True):
+    def _ApplyOperator(op, term, keys, values):
+        """Apply a given operator in combination with a search term.
+
+        Args:
+            op: A string representing an equality or inequality operator.
+            term: A string or unicode string containing the search term.
+            keys: List of Redis keys.
+            values: List of Datastore values.
+    
+        Returns:
+            A result list of Redis keys.
+        """
 
         def trycast(val):
             if not isinstance(term, basestring) and isinstance(val, basestring):
@@ -545,10 +556,6 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         values = [trycast(v) for v in values]
 
-        if return_keys:
-            ind = 0
-        else:
-            ind = 1
         try:
             i = values.index(term)
             c = values.count(term)
@@ -562,15 +569,15 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         s = [(keys[p], values[p]) for p in range(len(keys))]
 
         if op == '<':
-            return [p[ind] for p in s[0:i]]
+            return [p[0] for p in s[0:i]]
         elif op == '>':
-            return [p[ind] for p in s[i+c:]]
+            return [p[0] for p in s[i+c:]]
         elif op == '<=':
-            return [p[ind] for p in s[0:i+c] if p != ('nil', term)]
+            return [p[0] for p in s[0:i+c] if p != ('nil', term)]
         elif op == '>=':
-            return [p[ind] for p in s[i:] if p != ('nil', term)]
+            return [p[0] for p in s[i:] if p != ('nil', term)]
         elif op == '==':
-            return [p[ind] for p in s if p[1] == term]
+            return [p[0] for p in s if p[1] == term]
 
     def _WriteEntities(self):
         """Write stored entities to Redis backend.
@@ -775,6 +782,20 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
     @staticmethod
     def _ApplyOrderRulesToResults(rules, *results):
+        """Apply order rules to query results.
+
+        Args:
+            rules: A list containing tuples of order rules
+                [('prop_name', direction, [type, type, ...]), ...]
+
+            Each following argument is a pair of two lists representing the
+            result of a sort query, where the first member provides Redis keys
+            and the second one contains their values, both in the correct order
+            regarding above order rules.
+
+        Returns:
+            A result list of Redis keys.
+        """
         maps = []
         for i in range(0, len(results), 2):
             maps.append((results[i], results[i+1]))
@@ -822,9 +843,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             if compared == 0:
                 return cmp(a['key'], b['key'])
     
-    
         return [e['key'] for e in sorted(entities, compare_entities)]
-
 
     def _Dynamic_RunQuery(self, query, query_result):
         """Run given query.
