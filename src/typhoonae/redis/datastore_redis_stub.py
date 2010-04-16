@@ -556,15 +556,33 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             A result list of Redis keys.
         """
 
-        def trycast(val):
+        def _cast(val):
             if not isinstance(term, basestring) and isinstance(val, basestring):
                 try:
                     return type(term)(val)
                 except ValueError:
-                    return float(val)
+                    return eval(val)
             return val
 
-        values = [trycast(v) for v in values]
+        values = [_cast(v) for v in values]
+
+        def _flatten(t):
+            r = []
+            for k, v in t:
+                if isinstance(v, list):
+                    r.extend([(k, i) for i in v])
+                else:
+                    r.append((k, v))
+            return r
+
+        data = sorted(
+            _flatten([(keys[p], values[p]) for p in range(len(keys))]),
+            key=lambda t:t[1])
+
+        keys = []; values = []
+        for k, v in data:
+            keys.append(k)
+            values.append(v)
 
         try:
             i = values.index(term)

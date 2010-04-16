@@ -559,9 +559,14 @@ class DatastoreRedisTestCase(unittest.TestCase):
             values = db.ListProperty(int)
 
         Numbers(values=[0, 1, 2, 3]).put()
+        Numbers(values=[4, 5, 6, 7]).put()
 
         query = Numbers.all().filter('values =', 0)
         self.assertEqual([0, 1, 2, 3], query.get().values)
+
+        query = db.GqlQuery(
+            "SELECT * FROM Numbers WHERE values > :1 AND values < :2", 4, 7)
+        self.assertEqual([4, 5, 6, 7], query.get().values)
 
         class Issue(db.Model):
             reviewers = db.ListProperty(db.Email)
