@@ -579,6 +579,71 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         elif op == '==':
             return [p[0] for p in s if p[1] == term]
 
+    @staticmethod
+    def _ApplyOrderRulesToResults(rules, *results):
+        """Apply order rules to query results.
+
+        Args:
+            rules: A list containing tuples of order rules
+                [('prop_name', direction, [type, type, ...]), ...]
+
+            Each following argument is a pair of two lists representing the
+            result of a sort query, where the first member provides Redis keys
+            and the second one contains their values, both in the correct order
+            regarding above order rules.
+
+        Returns:
+            A result list of Redis keys.
+        """
+        maps = []
+        for i in range(0, len(results), 2):
+            maps.append((results[i], results[i+1]))
+    
+        dicts = []
+        r = 0
+        for m in maps:
+            d = dict()
+            for i, v in enumerate(m[0]):
+                val = m[1][i]
+                prop, direction, types = rules[r]
+                t = eval(types[0])
+                if not isinstance(val, t):
+                    val = t(val)
+                d[v] = val
+            r += 1
+            dicts.append(d)
+    
+        tuples = []
+        for k in results[0]:
+            tuples.append(tuple([k]+[dicts[i][k] for i in range(len(dicts))]))
+    
+        entities = []
+    
+        for t in tuples:
+            ent = {'key': t[0]}
+            for i in range(0, len(rules)):
+                prop, direction, types = rules[i]
+                ent[prop]=t[i+1]
+            entities.append(ent)
+    
+        def compare_entities(a, b):
+            compared = 0
+            for rule in rules:
+                prop, direction, types = rule
+    
+                compared = cmp(a[prop], b[prop])
+    
+                if (direction is 2):
+                    compared = -compared
+    
+                if compared != 0:
+                    return compared
+    
+            if compared == 0:
+                return cmp(a['key'], b['key'])
+    
+        return [e['key'] for e in sorted(entities, compare_entities)]
+
     def _WriteEntities(self):
         """Write stored entities to Redis backend.
 
@@ -779,71 +844,6 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         if not all(pipe.execute()):
             return
-
-    @staticmethod
-    def _ApplyOrderRulesToResults(rules, *results):
-        """Apply order rules to query results.
-
-        Args:
-            rules: A list containing tuples of order rules
-                [('prop_name', direction, [type, type, ...]), ...]
-
-            Each following argument is a pair of two lists representing the
-            result of a sort query, where the first member provides Redis keys
-            and the second one contains their values, both in the correct order
-            regarding above order rules.
-
-        Returns:
-            A result list of Redis keys.
-        """
-        maps = []
-        for i in range(0, len(results), 2):
-            maps.append((results[i], results[i+1]))
-    
-        dicts = []
-        r = 0
-        for m in maps:
-            d = dict()
-            for i, v in enumerate(m[0]):
-                val = m[1][i]
-                prop, direction, types = rules[r]
-                t = eval(types[0])
-                if not isinstance(val, t):
-                    val = t(val)
-                d[v] = val
-            r += 1
-            dicts.append(d)
-    
-        tuples = []
-        for k in results[0]:
-            tuples.append(tuple([k]+[dicts[i][k] for i in range(len(dicts))]))
-    
-        entities = []
-    
-        for t in tuples:
-            ent = {'key': t[0]}
-            for i in range(0, len(rules)):
-                prop, direction, types = rules[i]
-                ent[prop]=t[i+1]
-            entities.append(ent)
-    
-        def compare_entities(a, b):
-            compared = 0
-            for rule in rules:
-                prop, direction, types = rule
-    
-                compared = cmp(a[prop], b[prop])
-    
-                if (direction is 2):
-                    compared = -compared
-    
-                if compared != 0:
-                    return compared
-    
-            if compared == 0:
-                return cmp(a['key'], b['key'])
-    
-        return [e['key'] for e in sorted(entities, compare_entities)]
 
     def _Dynamic_RunQuery(self, query, query_result):
         """Run given query.
