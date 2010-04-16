@@ -593,3 +593,18 @@ class DatastoreRedisTestCase(unittest.TestCase):
             db.Email('foo@bar.net'))
 
         self.assertEqual(0, query.count())
+
+    def testStringListProperties(self):
+        """Tests string list properties."""
+
+        class Pizza(db.Model):
+            topping = db.StringListProperty()
+
+        Pizza(topping=["tomatoe", "cheese"]).put()
+        Pizza(topping=["tomatoe", "cheese", "salami"]).put()
+
+        query = Pizza.all(keys_only=True).filter('topping =', "salami")
+        self.assertEqual(1, query.count())
+
+        query = Pizza.all(keys_only=True).filter('topping =', "cheese")
+        self.assertEqual(2, query.count())

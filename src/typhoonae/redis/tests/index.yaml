@@ -47,6 +47,10 @@ indexes:
   properties:
   - name: values
 
+- kind: Pizza
+  properties:
+  - name: topping
+
 - kind: Issue
   properties:
   - name: reviewers
