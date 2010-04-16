@@ -943,20 +943,16 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
             filter_values.append(self._ApplyOperator(op, val, keys, vals))
 
-        result = []
-
         key_info = dict(app=app_id, kind=query.kind())
 
-        if not filters:
-            result.extend(
-                self.__db.sort(_KIND_INDEX % key_info, start=0, num=1000))
-
         if filter_values:
-            buffer = set(filter_values[0] or [])
+            result = set(filter_values[0] or [])
             for i in range(1, len(filter_values)):
-                buffer = buffer & set(filter_values[i] or [])
-        else:
-            buffer = set(result)
+                result = result & set(filter_values[i] or [])
+
+        if not filters:
+            result = set(
+                self.__db.sort(_KIND_INDEX % key_info, start=0, num=1000))
 
         if orders:
             pipe = self.__db.pipeline()
@@ -970,12 +966,12 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             for i in range(len(orders)):
                 prop_types[orders[i].property().decode('utf-8')] = types[i]
 
-        if buffer and orders:
+        if result and orders:
             buf_id = uuid.uuid4()
 
             pipe = self.__db.pipeline()
 
-            for elem in buffer:
+            for elem in result:
                 pipe = pipe.rpush(buf_id, elem)
 
             for order in orders:
@@ -1004,23 +1000,16 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             status.pop()
             rules = [(o.property(), o.direction(), prop_types[o.property()])
                 for o in orders]
-            buffer = self._ApplyOrderRulesToResults(
+            result = self._ApplyOrderRulesToResults(
                 rules, *status[-(len(orders)*2):])
-
-        result = []
-        if query.keys_only():
-            result.extend(buffer)
-        else:
-            if buffer:
-                result.extend(self.__db.mget(buffer))
 
         if result:
             if query.keys_only():
-                query_result.result_list().extend(
-                    [self._MakeKeyOnlyEntityForRedisKey(key) for key in result])
+                query_result.result_list().extend([
+                    self._MakeKeyOnlyEntityForRedisKey(key) for key in result])
             else:
-                query_result.result_list().extend(
-                    [entity_pb.EntityProto(pb) for pb in result])
+                query_result.result_list().extend([
+                    entity_pb.EntityProto(pb) for pb in self.__db.mget(result)])
 
         # Pupulating the query result.
         query_result.mutable_cursor().set_app(app_id)
