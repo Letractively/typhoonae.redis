@@ -551,3 +551,40 @@ class DatastoreRedisTestCase(unittest.TestCase):
         self.assertEqual(
             datastore_types.Key.from_path(u'Employee', 1, _app=u'test'),
             query.get())
+
+    def testListProperties(self):
+        """Tests list properties."""
+
+        class Numbers(db.Model):
+            values = db.ListProperty(int)
+
+        Numbers(values=[0, 1, 2, 3]).put()
+
+        query = Numbers.all().filter('values =', 0)
+        self.assertEqual([0, 1, 2, 3], query.get().values)
+
+        class Issue(db.Model):
+            reviewers = db.ListProperty(db.Email)
+
+        me = db.Email('me@somewhere.net')
+        you = db.Email('you@home.net')
+        issue = Issue(reviewers=[me, you])
+        issue.put()
+
+        query = db.GqlQuery(
+            "SELECT * FROM Issue WHERE reviewers = :1",
+            db.Email('me@somewhere.net'))
+
+        self.assertEqual(1, query.count())
+
+        query = db.GqlQuery(
+            "SELECT * FROM Issue WHERE reviewers = :1",
+            'me@somewhere.net')
+
+        self.assertEqual(1, query.count())
+
+        query = db.GqlQuery(
+            "SELECT * FROM Issue WHERE reviewers = :1",
+            db.Email('foo@bar.net'))
+
+        self.assertEqual(0, query.count())

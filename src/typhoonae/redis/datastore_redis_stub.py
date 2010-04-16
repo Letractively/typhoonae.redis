@@ -454,16 +454,26 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         buffers = []
 
-        for prop in index_def.property_list():
-            name = prop.name()
-            value = self._GetRedisValueForValue(entity.native[name])
+        def _write_key_index(pipe, key_info, value):
+            value = self._GetRedisValueForValue(value)
             digest = hashlib.md5(value.encode('utf-8')).hexdigest()
-
-            key_info = dict(app=app, kind=kind, prop=name, encval=digest)
+            key_info['encval'] = digest
 
             # Property index
             prop_index = _PROPERTY_INDEX % key_info
             pipe = pipe.sadd(prop_index, stored_key)
+
+            return pipe
+
+        for prop in index_def.property_list():
+            name = prop.name()
+            value = entity.native[name]
+            key_info = dict(app=app, kind=kind, prop=name)
+            if isinstance(value, list):
+                for item in value:
+                    pipe = _write_key_index(pipe, key_info, item)
+            else:
+                pipe = _write_key_index(pipe, key_info, value)
 
             # Property types
             value_type = type(prop_dict[name]).__name__

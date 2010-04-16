@@ -27,7 +27,6 @@ indexes:
   - name: distance
     direction: asc
 
-
 - kind: Artist
   properties:
   - name: name
@@ -43,3 +42,11 @@ indexes:
   - name: duration
   - name: genre
   - name: title
+
+- kind: Numbers
+  properties:
+  - name: values
+
+- kind: Issue
+  properties:
+  - name: reviewers
