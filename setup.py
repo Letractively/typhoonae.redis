@@ -35,9 +35,9 @@ setuptools.setup(
         read('CHANGES.rst')
         ),
     license="Apache License 2.0",
-    keywords=["gae", "appengine", "redis"],
+    keywords=["gae", "appengine", "redis", "datastore", "typhoonae", "tae"],
     classifiers=[
-        'Development Status :: 4 - Beta',
+        'Development Status :: 3 - Alpha',
         'Environment :: Web Environment',
         'Intended Audience :: Developers',
         'License :: OSI Approved :: Apache Software License',
