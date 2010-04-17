@@ -187,6 +187,21 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         mark_twain.delete()
 
+    def testGetEntitiesByNameAndID(self):
+        """Tries to retreive entities by name or numeric id."""
+
+        class Book(db.Model):
+            title = db.StringProperty()
+
+        Book(title="The Hitchhiker's Guide to the Galaxy").put()
+        book = Book.get_by_id(1)
+        self.assertEqual("The Hitchhiker's Guide to the Galaxy", book.title)
+
+        Book(key_name="solong",
+             title="So Long, and Thanks for All the Fish").put()
+        book = Book.get_by_key_name("solong")
+        self.assertEqual("So Long, and Thanks for All the Fish", book.title)
+
     def testLocking(self):
         """Acquires and releases transaction locks."""
 
