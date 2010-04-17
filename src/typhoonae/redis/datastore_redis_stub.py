@@ -22,6 +22,8 @@ Unlike the file stub's implementation it is designed to handle larger amounts
 of production data and concurrency.
 """
 
+from datetime import datetime
+
 from google.appengine.api import apiproxy_stub
 from google.appengine.api import datastore
 from google.appengine.api import datastore_errors
@@ -555,7 +557,27 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         pipe.execute()
 
     @staticmethod
-    def _ApplyOperator(op, term, keys, values):
+    def _GetValueFromRedisValue(value, return_type):
+        """Convert a Redis value to the desired type.
+
+        Args:
+            value: String object.
+            return_type: The return value's type.
+
+        Returns:
+            A Python value of the desired return type.
+        """
+        if return_type is datetime:
+            format = "%Y-%m-%d %H:%M:%S"
+            new_val = datetime.fromtimestamp(
+                time.mktime(time.strptime(value[:value.index('.')], format)))
+        else:
+            new_val = return_type(value)
+
+        return new_val
+
+    @classmethod
+    def _ApplyOperator(cls, op, term, keys, values):
         """Apply a given operator in combination with a search term.
 
         Args:
@@ -571,7 +593,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         def _cast(val):
             if not isinstance(term, basestring) and isinstance(val, basestring):
                 try:
-                    return type(term)(val)
+                    return cls._GetValueFromRedisValue(val, type(term))
                 except ValueError:
                     return eval(val)
             return val
@@ -619,8 +641,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         elif op == '==':
             return [p[0] for p in s if p[1] == term]
 
-    @staticmethod
-    def _ApplyOrderRulesToResults(rules, *results):
+    @classmethod
+    def _ApplyOrderRulesToResults(cls, rules, *results):
         """Apply order rules to query results.
 
         Args:
@@ -648,7 +670,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 prop, direction, types = rules[r]
                 t = eval(types[0])
                 if not isinstance(val, t):
-                    val = t(val)
+                    val = cls._GetValueFromRedisValue(val, t)
                 d[v] = val
             r += 1
             dicts.append(d)

@@ -19,6 +19,7 @@ from google.appengine.api import datastore_types
 from google.appengine.datastore import datastore_index
 from google.appengine.ext import db
 
+import datetime
 import google.appengine.api.apiproxy_stub
 import google.appengine.api.apiproxy_stub_map
 import google.appengine.api.datastore_errors
@@ -622,3 +623,20 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         query = db.GqlQuery("SELECT * FROM Pizza WHERE __key__ IN :1", [key])
         self.assertEqual(0, query.count())
+
+    def testDifferentProperties(self):
+        """Tests different property types."""
+
+        class Note(db.Model):
+            timestamp = db.DateTimeProperty(auto_now=True)
+
+        note = Note()
+        note.put()
+
+        query = db.GqlQuery("SELECT * FROM Note ORDER BY timestamp DESC")
+        self.assertEqual(1, query.count())
+
+        query = db.GqlQuery(
+            "SELECT * FROM Note WHERE timestamp <= :1", datetime.datetime.now())
+
+        self.assertEqual(1, query.count())

@@ -54,3 +54,7 @@ indexes:
 - kind: Issue
   properties:
   - name: reviewers
+
+- kind: Note
+  properties:
+  - name: timestamp
