@@ -982,8 +982,9 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             pattern = '*:' + prop
             pipe = self.__db.pipeline()
 
-            # TODO This can end up in potentially very large results.
-            # We need some kind of cursor here.
+            # TODO This ends up in potentially very large results the more
+            # entities of a kind exist. A possible solution could be to
+            # partition the indexes into chunks of one thousand entries each.
             pipe = pipe.sort(index, by=pattern, alpha=alpha)
             pipe = pipe.sort(index, by=pattern, get=pattern, alpha=alpha)
 
