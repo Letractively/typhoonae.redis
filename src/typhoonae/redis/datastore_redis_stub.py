@@ -445,6 +445,12 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
         pipe = pipe.sadd(kind_index, stored_key)
 
+        key_id = str(datastore_types.Key._FromPb(key))
+        key_index = _PROPERTY_INDEX % {
+            'app': app, 'kind': kind, 'prop': u'__key__',
+            'encval': hashlib.md5(key_id).hexdigest()}
+        pipe = pipe.sadd(key_index, stored_key)
+
         index_def = self.__indexes.get(kind)
         if not index_def:
             pipe.execute()
@@ -515,6 +521,12 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
         pipe = pipe.srem(kind_index, stored_key)
+
+        key_id = str(datastore_types.Key._FromPb(key))
+        key_index = _PROPERTY_INDEX % {
+            'app': app, 'kind': kind, 'prop': u'__key__',
+            'encval': hashlib.md5(key_id).hexdigest()}
+        pipe = pipe.srem(key_index, stored_key)
 
         index_def = self.__indexes.get(kind)
         if not index_def:
@@ -950,6 +962,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             result = set(filter_results[0] or [])
             for i in range(1, len(filter_results)):
                 result = result & set(filter_results[i] or [])
+        else:
+            result = set()
 
         if not filters:
             result = set(

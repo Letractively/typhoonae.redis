@@ -612,3 +612,13 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         query = Pizza.all().filter('topping IN', ["salami", "prosciutto"])
         self.assertEqual(2, query.count())
+
+        key = datastore_types.Key.from_path('Pizza', 1)
+        query = db.GqlQuery("SELECT * FROM Pizza WHERE __key__ IN :1", [key])
+        pizza = query.get()
+        self.assertEqual(["tomatoe", "cheese"], pizza.topping)
+
+        pizza.delete()
+
+        query = db.GqlQuery("SELECT * FROM Pizza WHERE __key__ IN :1", [key])
+        self.assertEqual(0, query.count())
