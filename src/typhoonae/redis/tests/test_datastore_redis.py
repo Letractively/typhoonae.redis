@@ -602,9 +602,13 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         Pizza(topping=["tomatoe", "cheese"]).put()
         Pizza(topping=["tomatoe", "cheese", "salami"]).put()
+        Pizza(topping=["tomatoe", "cheese", "prosciutto"]).put()
 
         query = Pizza.all(keys_only=True).filter('topping =', "salami")
         self.assertEqual(1, query.count())
 
         query = Pizza.all(keys_only=True).filter('topping =', "cheese")
+        self.assertEqual(3, query.count())
+
+        query = Pizza.all().filter('topping IN', ["salami", "prosciutto"])
         self.assertEqual(2, query.count())
