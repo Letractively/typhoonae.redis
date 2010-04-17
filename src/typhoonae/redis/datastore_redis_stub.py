@@ -908,7 +908,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         (filters, orders) = datastore_index.Normalize(
             query.filter_list(), query.order_list())
 
-        filter_values = []
+        filter_results = []
 
         for filt in filters:
             assert filt.op() != datastore_pb.Query_Filter.IN
@@ -929,7 +929,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 alpha = False
 
             if op == '==':
-                filter_values.append(self.__db.sort(_PROPERTY_INDEX % key_info))
+                filter_results.append(
+                    self.__db.sort(_PROPERTY_INDEX % key_info))
                 continue
 
             index = _KIND_INDEX % key_info
@@ -941,14 +942,14 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 index, by=pattern, get=pattern, start=0, num=1000, alpha=alpha)
             keys, vals = pipe.execute()
 
-            filter_values.append(self._ApplyOperator(op, val, keys, vals))
+            filter_results.append(self._ApplyOperator(op, val, keys, vals))
 
         key_info = dict(app=app_id, kind=query.kind())
 
-        if filter_values:
-            result = set(filter_values[0] or [])
-            for i in range(1, len(filter_values)):
-                result = result & set(filter_values[i] or [])
+        if filter_results:
+            result = set(filter_results[0] or [])
+            for i in range(1, len(filter_results)):
+                result = result & set(filter_results[i] or [])
 
         if not filters:
             result = set(
