@@ -942,6 +942,16 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         (filters, orders) = datastore_index.Normalize(
             query.filter_list(), query.order_list())
 
+        if query.has_offset():
+            offset = query.offset()
+        else:
+            offset = 0
+
+        if query.has_limit():
+            limit = query.limit()
+        else:
+            limit = _MAXIMUM_RESULTS
+
         filter_results = []
 
         for filt in filters:
@@ -963,17 +973,20 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 alpha = False
 
             if op == '==':
+                index = _PROPERTY_INDEX % key_info
                 filter_results.append(
-                    self.__db.sort(_PROPERTY_INDEX % key_info))
+                    self.__db.sort(index, start=offset, num=limit))
                 continue
 
             index = _KIND_INDEX % key_info
             pattern = '*:' + prop
             pipe = self.__db.pipeline()
-            pipe = pipe.sort(
-                index, by=pattern, start=0, num=1000, alpha=alpha)
-            pipe = pipe.sort(
-                index, by=pattern, get=pattern, start=0, num=1000, alpha=alpha)
+
+            # TODO This can end up in potentially very large results.
+            # We need some kind of cursor here.
+            pipe = pipe.sort(index, by=pattern, alpha=alpha)
+            pipe = pipe.sort(index, by=pattern, get=pattern, alpha=alpha)
+
             keys, vals = pipe.execute()
 
             filter_results.append(self._ApplyOperator(op, val, keys, vals))
@@ -989,7 +1002,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         if not filters:
             result = set(
-                self.__db.sort(_KIND_INDEX % key_info, start=0, num=1000))
+                self.__db.sort(_KIND_INDEX % key_info, start=offset, num=limit))
 
         if orders:
             pipe = self.__db.pipeline()

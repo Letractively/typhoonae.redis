@@ -655,3 +655,14 @@ class DatastoreRedisTestCase(unittest.TestCase):
             "SELECT * FROM Note WHERE timestamp <= :1", datetime.datetime.now())
 
         self.assertEqual(1, query.count())
+
+    def testQueriesWithLimit(self):
+        """Retreives a limited number of results."""
+
+        class MyModel(db.Model):
+            property = db.StringProperty()
+
+        for i in range(100):
+            MyModel(property="Random data.").put()
+
+        self.assertEqual(50, MyModel.all().count(limit=50))
