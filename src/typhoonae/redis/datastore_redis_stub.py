@@ -71,6 +71,7 @@ _NEXT_ID           = '%(app)s!\vNEXT_ID'
 _PROPERTY_INDEX    = '%(app)s!%(kind)s:%(prop)s:%(encval)s:\vKEYS'
 _PROPERTY_TYPES    = '%(app)s!%(kind)s:%(prop)s:\vTYPES'
 _PROPERTY_VALUE    = '%(key)s:%(prop)s'
+_TEMPORARY_KEY     = '%(app)s!TEMP:%(uuid)s'
 
 
 class _StoredEntity(object):
@@ -1018,12 +1019,12 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 prop_types[orders[i].property().decode('utf-8')] = types[i]
 
         if result and orders:
-            buf_id = uuid.uuid4()
+            buf_key = _TEMPORARY_KEY % {'app': app_id, 'uuid': uuid.uuid4()}
 
             pipe = self.__db.pipeline()
 
             for elem in result:
-                pipe = pipe.rpush(buf_id, elem)
+                pipe = pipe.rpush(buf_key, elem)
 
             for order in orders:
                 prop = order.property().decode('utf-8')
@@ -1040,11 +1041,11 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
                 pattern = '*:' + prop
                 pipe = pipe.sort(
-                    buf_id, by=pattern, desc=desc, alpha=alpha)
+                    buf_key, by=pattern, desc=desc, alpha=alpha)
                 pipe = pipe.sort(
-                    buf_id, by=pattern, get=pattern, desc=desc, alpha=alpha)
+                    buf_key, by=pattern, get=pattern, desc=desc, alpha=alpha)
 
-            pipe = pipe.delete(buf_id)
+            pipe = pipe.delete(buf_key)
 
             status = pipe.execute()
             assert status[-1]
