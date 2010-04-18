@@ -188,7 +188,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
         mark_twain.delete()
 
     def testGetEntitiesByNameAndID(self):
-        """Tries to retreive entities by name or numeric id."""
+        """Tries to retrieve entities by name or numeric id."""
 
         class Book(db.Model):
             title = db.StringProperty()
@@ -657,7 +657,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
         self.assertEqual(1, query.count())
 
     def testQueriesWithLimit(self):
-        """Retreives a limited number of results."""
+        """Retrieves a limited number of results."""
 
         class MyModel(db.Model):
             property = db.StringProperty()
