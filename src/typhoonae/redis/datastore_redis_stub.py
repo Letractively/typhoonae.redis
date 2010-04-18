@@ -748,10 +748,10 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         self.assertPbIsInitialized(request)
 
-        if call in ('Put', 'Delete'):
+        if call in ('Put', 'Get', 'Delete'):
             if call == 'Put':
                 keys = [e.key() for e in request.entity_list()]
-            elif call == 'Delete':
+            elif call in ('Get', 'Delete'):
                 keys = request.key_list()
             entity_group = self._ExtractEntityGroupFromKeys(keys)
             if request.has_transaction():
