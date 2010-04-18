@@ -558,7 +558,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         pipe.execute()
 
     @staticmethod
-    def _GetValueFromRedisValue(value, return_type):
+    def _GetValueForRedisValue(value, return_type):
         """Convert a Redis value to the desired type.
 
         Args:
@@ -569,9 +569,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             A Python value of the desired return type.
         """
         if return_type is datetime:
-            format = "%Y-%m-%d %H:%M:%S"
-            new_val = datetime.fromtimestamp(
-                time.mktime(time.strptime(value[:value.index('.')], format)))
+            new_val = value
         else:
             new_val = return_type(value)
 
@@ -591,10 +589,13 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             A result list of Redis keys.
         """
 
+        if isinstance(term, datetime):
+            term = term.isoformat()
+
         def _cast(val):
             if not isinstance(term, basestring) and isinstance(val, basestring):
                 try:
-                    return cls._GetValueFromRedisValue(val, type(term))
+                    return cls._GetValueForRedisValue(val, type(term))
                 except ValueError:
                     return eval(val)
             return val
@@ -671,7 +672,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 prop, direction, types = rules[r]
                 t = eval(types[0])
                 if not isinstance(val, t):
-                    val = cls._GetValueFromRedisValue(val, t)
+                    val = cls._GetValueForRedisValue(val, t)
                 d[v] = val
             r += 1
             dicts.append(d)
