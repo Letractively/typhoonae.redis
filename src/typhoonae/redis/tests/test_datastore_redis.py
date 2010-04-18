@@ -91,7 +91,7 @@ class DatastoreRedisTestCase(unittest.TestCase):
             'test', [], host='nowhere', port=10987)
 
     def test__ValidateAppId(self):
-        """Validates an application Id."""
+        """Validates an application id."""
 
         self.assertRaises(
             google.appengine.api.datastore_errors.BadRequestError,
