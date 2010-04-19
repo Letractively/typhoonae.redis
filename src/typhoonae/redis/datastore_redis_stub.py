@@ -34,6 +34,7 @@ from google.appengine.datastore import entity_pb
 from google.appengine.runtime import apiproxy_errors
 
 import hashlib
+import indexes
 import logging
 import redis
 import string
@@ -496,6 +497,11 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             # Property values
             prop_key = _PROPERTY_VALUE % {'key': stored_key, 'prop': name}
             pipe = pipe.set(prop_key, value)
+
+            if isinstance(value, basestring):
+                index = indexes.StringIndex(
+                    self.__db, self.__app_id, kind, name)
+                pipe = index.add(stored_key, value, pipe)
 
         pipe.execute()
 
@@ -982,17 +988,23 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
             index = _KIND_INDEX % key_info
             pattern = '*:' + prop
-            pipe = self.__db.pipeline()
 
-            # TODO This ends up in potentially very large results the more
-            # entities of a kind exist. A possible solution could be to
-            # partition the indexes into chunks of one thousand entries each.
-            pipe = pipe.sort(index, by=pattern, alpha=alpha)
-            pipe = pipe.sort(index, by=pattern, get=pattern, alpha=alpha)
+            if isinstance(val, basestring):
+                keys = indexes.StringIndex(
+                    self.__db, self.__app_id, query.kind(), prop)
+                filter_results.append(keys.filter(op, val))
+            else:
+                # TODO This ends up in potentially very large results the more
+                # entities of a kind exist. A possible solution could be to
+                # partition the indexes into chunks of one thousand entries
+                # each.
+                pipe = self.__db.pipeline()
+                pipe = pipe.sort(index, by=pattern, alpha=alpha)
+                pipe = pipe.sort(index, by=pattern, get=pattern, alpha=alpha)
 
-            keys, vals = pipe.execute()
+                keys, vals = pipe.execute()
 
-            filter_results.append(self._ApplyOperator(op, val, keys, vals))
+                filter_results.append(self._ApplyOperator(op, val, keys, vals))
 
         key_info = dict(app=app_id, kind=query.kind())
 
