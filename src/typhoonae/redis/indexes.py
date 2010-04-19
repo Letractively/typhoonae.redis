@@ -42,7 +42,8 @@ class StringIndex(object):
         score = ''.join([str(ord(c)).zfill(3) for c in val[:d]]).ljust(d*3,'0')
         return self.__prop_key+score
 
-    def add(self, key, value=None, pipe=None):
+    def _execute(self, func, key, value=None, pipe=None):
+        assert func in ('sadd', 'srem')
         if not value:
             value = self.__db[key]
         if not pipe:
@@ -50,27 +51,18 @@ class StringIndex(object):
         else:
             _pipe = pipe
         score = self.__score(value)
-        _pipe = _pipe.sadd(score, key)
-        _pipe = _pipe.sadd(self.__key, score)
+        _pipe = getattr(_pipe, func)(score, key)
+        _pipe = getattr(_pipe, func)(self.__key, score)
         if pipe:
             return pipe
         else:
             return _pipe.execute()
 
+    def add(self, key, value=None, pipe=None):
+        return self._execute('sadd', key, value, pipe)
+
     def remove(self, key, value=None, pipe=None):
-        if not value:
-            value = self.__db[key]
-        if not pipe:
-            _pipe = self.__db.pipeline()
-        else:
-            _pipe = pipe
-        score = self.__score(value)
-        _pipe = _pipe.srem(score, key)
-        _pipe = _pipe.srem(self.__key, score)
-        if pipe:
-            return pipe
-        else:
-            return _pipe.execute()
+        return self._execute('srem', key, value, pipe)
 
     def _partitions(self, op, score):
         keys = self.__db.sort(self.__key)
