@@ -553,6 +553,20 @@ class DatastoreRedisTestCase(unittest.TestCase):
             [u'Come Together', u'Here Comes The Sun', u'Something'],
             [song.title for song in query.run()])
 
+        query = Song.all().filter('title >', 'Come').order('title')
+
+        self.assertEqual(
+            [u'Come Together', u'Here Comes The Sun', u'Something'],
+            [song.title for song in query.run()])
+
+        something.delete()
+
+        query = Song.all().filter('title >', 'Come').order('title')
+
+        self.assertEqual(
+            [u'Come Together', u'Here Comes The Sun'],
+            [song.title for song in query.run()])
+
     def testUnicode(self):
         """Tests unicode."""
 

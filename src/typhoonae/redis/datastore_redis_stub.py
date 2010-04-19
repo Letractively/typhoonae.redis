@@ -561,6 +561,11 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             prop_key = _PROPERTY_VALUE % {'key': stored_key, 'prop': name}
             pipe = pipe.delete(prop_key, value)
 
+            if isinstance(value, basestring):
+                index = indexes.StringIndex(
+                    self.__db, self.__app_id, kind, name)
+                pipe = index.remove(stored_key, value, pipe)
+
         pipe.execute()
 
     @staticmethod
