@@ -39,25 +39,13 @@ indexes:
   - name: prop3
   - name: prop4
   - name: prop5
-
-- kind: SecondModel
-  properties:
-  - name: prop1
 """
 
 
 class FirstModel(db.Model):
     prop1 = db.IntegerProperty()
     prop2 = db.StringProperty()
-    prop3 = db.IntegerProperty()
-    prop4 = db.StringProperty()
-    prop5 = db.IntegerProperty()
-
-
-class SecondModel(db.Model):
-    prop1 = db.IntegerProperty()
-    prop2 = db.StringProperty()
-    prop3 = db.IntegerProperty()
+    prop3 = db.StringListProperty()
     prop4 = db.StringProperty()
     prop5 = db.IntegerProperty()
 
@@ -102,10 +90,13 @@ def add_random_entities(num, kind):
     numbers = range(1000)
     chars = [' ']+[chr(i) for i in range(65, 104)]
     for n in range(num):
-        s = ''.join(r.sample(chars[:40], 40))*2
+        data = []
+        for i in range(2):
+            data.extend(r.sample(chars[:40], 40))
+        s = ''.join(data)
         i = r.sample(numbers, 1).pop() 
 
-        entity = kind(prop1=i, prop2=s, prop3=i, prop4=s, prop5=i)
+        entity = kind(prop1=i, prop2=s, prop3=[s, s], prop4=s, prop5=i)
         entity.put()
 
 
@@ -117,7 +108,7 @@ def main():
     stub = get_datastore_stub()
     num = 1000
 
-    for kind in (FirstModel, SecondModel):
+    for kind in (FirstModel,):
         for round in range(rounds):
             print "Round %i" % (round+1)
             print "------" + "-" * len('%i' % (round+1))
@@ -137,9 +128,9 @@ def main():
 
             print "Performance:", num/result, "entities/sec"
 
-            qs = "SELECT __key__ FROM %s WHERE prop1 > 500 ORDER BY prop1"
-            sys.stdout.write(qs % kind.__name__ + '... ')
-            query = db.GqlQuery(qs % kind.__name__)
+            qs = "SELECT __key__ FROM %s WHERE prop2 > :1 ORDER BY prop2" % kind.__name__
+            sys.stdout.write(qs + '... ')
+            query = db.GqlQuery(qs, 'foo')
             start = time.time()
             results = list(query.fetch(1000))
             end = time.time()
@@ -149,9 +140,9 @@ def main():
             else:
                 print result, "sec"
             print "Number of results: %i" % len(results)
-            qs = "SELECT * FROM %s WHERE prop1 > 500 ORDER BY prop1"
-            sys.stdout.write(qs % kind.__name__ + '... ')
-            query = db.GqlQuery(qs % kind.__name__)
+            qs = "SELECT * FROM %s WHERE prop2 > :1 ORDER BY prop2" % kind.__name__
+            sys.stdout.write(qs + '... ')
+            query = db.GqlQuery(qs, 'foo')
             start = time.time()
             results = list(query.fetch(1000))
             end = time.time()
@@ -164,12 +155,7 @@ def main():
 
             print
 
-    print "Stats"
-    print "-----"
-    datastore = stub.__dict__['_DatastoreRedisStub__db']
-    print "Total number of keys in database:", len(datastore.keys())
-
-    stub.Clear()
+    #stub.Clear()
 
 if __name__ == "__main__":
     main()
