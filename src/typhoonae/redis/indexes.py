@@ -21,37 +21,59 @@ Also, partitioning should be entirely transparent to applications.
 """
 
 
+import uuid
+
+
 _SCORES_INDEX   = '%(app)s!%(kind)s:%(prop)s:\vSCORES'
 _PROPERTY_SCORE = '%(app)s!%(kind)s:%(prop)s\x08\t'
 _PROPERTY_VALUE = '%(key)s:%(prop)s'
+_TEMPORARY_KEY  = '%(app)s!TEMP:%(uuid)s'
 
 
-class StringIndex(object):
-    """Indexing string values."""
+class BaseIndex(object):
+    """The base index class."""
 
-    def __init__(self, db, app, kind, prop, depth=2):
+    def __init__(self, db, app, kind, prop):
         self.__db = db
+        self.__app = app
         self.__prop = prop
         self.__key = _SCORES_INDEX % locals()
         self.__prop_key = _PROPERTY_SCORE % locals()
-        self.__depth = depth
 
-    def __score(self, val):
-        d = self.__depth
-        score = ''.join([str(ord(c)).zfill(3) for c in val[:d]]).ljust(d*3,'0')
-        return self.__prop_key+score
+    @property
+    def db(self):
+        return self.__db
+
+    @property
+    def app(self):
+        return self.__app
+
+    @property
+    def prop(self):
+        return self.__prop
+
+    @property
+    def key(self):
+        return self.__key
+
+    @property
+    def prop_key(self):
+        return self.__prop_key
+
+    def get_score(self, val):
+        raise NotImplemented
 
     def _execute(self, func, key, value=None, pipe=None):
         assert func in ('sadd', 'srem')
-        if not value:
-            value = self.__db[key]
+        if value is None:
+            value = self.db[key]
         if not pipe:
-            _pipe = self.__db.pipeline()
+            _pipe = self.db.pipeline()
         else:
             _pipe = pipe
-        score = self.__score(value)
+        score = self.get_score(value)
         _pipe = getattr(_pipe, func)(score, key)
-        _pipe = getattr(_pipe, func)(self.__key, score)
+        _pipe = getattr(_pipe, func)(self.key, score)
         if pipe:
             return pipe
         else:
@@ -64,44 +86,101 @@ class StringIndex(object):
         return self._execute('srem', key, value, pipe)
 
     def _partitions(self, op, score):
-        keys = self.__db.sort(self.__key)
+        keys = self.db.sort(self.key)
         if op in ('<', '<='):
             for p in reversed(filter(lambda k: k<=score, keys)): yield p
         if op in ('>', '>='):
             for p in sorted(filter(lambda k: k>=score, keys)): yield p
 
-    def filter(self, op, value, limit=1000):
+    def get_value(self, val):
+        raise NotImplemented
+
+    def filter(self, op, value, limit=1000, offset=0):
         """Apply filter rules.
 
         Args:
             op: An operator.
             value: A string object.
             limit: The number of results to return.
+            offset: The number of results to skip.
         """
-        score = self.__score(value)
+        score = self.get_score(value)
         results = []
 
+        if op == '<':
+            cond = (-1,)
+            desc = True
+        if op == '<=':
+            cond = (-1, 0)
+            desc = True
+        if op == '>':
+            cond = (1,)
+            desc = False
+        if op == '>=':
+            cond = (0, 1)
+            desc = False
+
+        if isinstance(value, basestring):
+            alpha = True
+        else:
+            alpha = False
+
+        buf_key = _TEMPORARY_KEY % {'app': self.app, 'uuid': uuid.uuid4()}
         for p in self._partitions(op, score):
-            keys = self.__db.sort(p)
+            pipe = self.db.pipeline()
+            for k in self.db.sort(p):
+                pipe = pipe.rpush(buf_key, k)
+            pipe.execute()
 
-            pipe = self.__db.pipeline()
-            for k in keys:
-                prop_key = _PROPERTY_VALUE % {'key': k, 'prop': self.__prop}
-                pipe = pipe.get(prop_key)
-            values = pipe.execute()
+        all_values = self.db.sort(
+            buf_key, by="*:"+self.prop, get="*:"+self.prop, alpha=alpha, desc=desc)
 
-            buf = [(keys[i], values[i].decode('utf-8'))
-                   for i in range(len(keys))]
+        if isinstance(value, unicode):
+            value = str(value.encode('utf-8'))
+        if value not in all_values:
+            all_values.append(value)
+            all_values.sort(lambda a,b:cmp(unicode(a,'utf-8'), unicode(b, 'utf-8')))
+            if desc:
+                all_values.reverse()
 
-            if op == '<':
-                results.extend([k for k, v in buf if v < value])
-            elif op == '<=':
-                results.extend([k for k, v in buf if v <= value])
-            elif op == '>':
-                results.extend([k for k, v in buf if v > value])
-            elif op == '>=':
-                results.extend([k for k, v in buf if v >= value])
+        pos = all_values.index(value)
 
-            if len(results) >= limit: break
+        prop_key = "*:"+self.prop
+        keys = self.db.sort(
+            buf_key, by=prop_key, alpha=alpha, desc=desc, start=pos+offset,
+            num=limit)
+        values = self.db.sort(
+            buf_key, by=prop_key, get=prop_key, alpha=alpha, desc=desc,
+            start=pos+offset, num=limit)
+
+        self.db.delete(buf_key)
+
+        buf = [(keys[i], self.get_value(values[i]))
+               for i in range(len(keys))]
+
+        count = 0
+
+        for k, v in buf:
+            if cmp(v, value.decode('utf-8')) in cond:
+                results.append(k)
+                count += 1
+            if count >= limit:
+                break
  
         return results
+
+
+class StringIndex(BaseIndex):
+    """Indexing string values."""
+
+    def __init__(self, db, app, kind, prop, depth=2):
+        super(StringIndex, self).__init__(db, app, kind, prop)
+        self.__depth = depth
+
+    def get_score(self, val):
+        d = self.__depth
+        score = ''.join([str(ord(c)).zfill(3) for c in val[:d]]).ljust(d*3,'0')
+        return self.prop_key+score
+
+    def get_value(self, val):
+        return val.decode('utf-8')
