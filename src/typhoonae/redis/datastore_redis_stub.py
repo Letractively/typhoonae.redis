@@ -1022,7 +1022,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         if not filters:
             result = set(
-                self.__db.sort(_KIND_INDEX % key_info, start=offset, num=limit))
+                self.__db.sort(_KIND_INDEX % key_info, alpha=True, start=offset, num=limit))
 
         if orders:
             pipe = self.__db.pipeline()
@@ -1072,6 +1072,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 for o in orders]
             result = self._ApplyOrderRulesToResults(
                 rules, *status[-(len(orders)*2):])
+        elif result and not orders:
+            result = sorted(result)
 
         if result:
             if query.keys_only():
