@@ -29,13 +29,12 @@ _PROPERTY_VALUE = '%(key)s:%(prop)s'
 class StringIndex(object):
     """Indexing string values."""
 
-    def __init__(self, db, app, kind, prop, depth=2, max=1000):
+    def __init__(self, db, app, kind, prop, depth=2):
         self.__db = db
         self.__prop = prop
         self.__key = _SCORES_INDEX % locals()
         self.__prop_key = _PROPERTY_SCORE % locals()
         self.__depth = depth
-        self.__max = max
 
     def __score(self, val):
         d = self.__depth
@@ -71,12 +70,13 @@ class StringIndex(object):
         if op in ('>', '>='):
             for p in sorted(filter(lambda k: k>=score, keys)): yield p
 
-    def filter(self, op, value):
+    def filter(self, op, value, limit=1000):
         """Apply filter rules.
 
         Args:
             op: An operator.
             value: A string object.
+            limit: The number of results to return.
         """
         score = self.__score(value)
         results = []
@@ -102,6 +102,6 @@ class StringIndex(object):
             elif op == '>=':
                 results.extend([k for k, v in buf if v >= value])
 
-            if len(results) >= self.__max: break
+            if len(results) >= limit: break
  
         return results

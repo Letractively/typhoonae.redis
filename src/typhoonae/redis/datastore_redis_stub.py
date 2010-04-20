@@ -997,7 +997,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             if isinstance(val, basestring):
                 keys = indexes.StringIndex(
                     self.__db, self.__app_id, query.kind(), prop)
-                filter_results.append(keys.filter(op, val))
+                filter_results.append(keys.filter(op, val, limit))
             else:
                 # TODO This ends up in potentially very large results the more
                 # entities of a kind exist. A possible solution could be to
