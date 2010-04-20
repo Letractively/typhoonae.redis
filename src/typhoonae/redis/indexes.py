@@ -132,20 +132,22 @@ class BaseIndex(object):
                 pipe = pipe.rpush(buf_key, k)
             pipe.execute()
 
+        prop_key = "*:"+self.prop
+
         all_values = self.db.sort(
-            buf_key, by="*:"+self.prop, get="*:"+self.prop, alpha=alpha, desc=desc)
+            buf_key, by=prop_key, get=prop_key, alpha=alpha, desc=desc)
 
         if isinstance(value, unicode):
             value = str(value.encode('utf-8'))
         if value not in all_values:
             all_values.append(value)
-            all_values.sort(lambda a,b:cmp(unicode(a,'utf-8'), unicode(b, 'utf-8')))
+            all_values.sort(
+                lambda a,b:cmp(unicode(a,'utf-8'), unicode(b, 'utf-8')))
             if desc:
                 all_values.reverse()
 
         pos = all_values.index(value)
 
-        prop_key = "*:"+self.prop
         keys = self.db.sort(
             buf_key, by=prop_key, alpha=alpha, desc=desc, start=pos+offset,
             num=limit)
