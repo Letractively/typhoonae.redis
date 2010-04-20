@@ -1021,8 +1021,18 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             result = set()
 
         if not filters:
+            if orders:
+                desc = orders[0].direction() == 2
+            else:
+                desc = False
             result = set(
-                self.__db.sort(_KIND_INDEX % key_info, alpha=True, start=offset, num=limit))
+                self.__db.sort(
+                    _KIND_INDEX % key_info,
+                    alpha=True,
+                    desc=desc,
+                    start=offset,
+                    num=limit)
+            )
 
         if orders:
             pipe = self.__db.pipeline()
