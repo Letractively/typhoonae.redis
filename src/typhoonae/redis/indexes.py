@@ -24,8 +24,8 @@ Also, partitioning should be entirely transparent to applications.
 import uuid
 
 
-_SCORES_INDEX   = '%(app)s!%(kind)s:%(prop)s:\vSCORES'
-_PROPERTY_SCORE = '%(app)s!%(kind)s:%(prop)s\x08\t'
+_SCORE_INDEX    = '%(app)s!%(kind)s:%(prop)s:\vSCORES'
+_PROPERTY_SCORE = '%(app)s!%(kind)s:%(prop)s:\r%(score)s:\vKEYS'
 _PROPERTY_VALUE = '%(key)s:%(prop)s'
 _TEMPORARY_KEY  = '%(app)s!TEMP:%(uuid)s'
 
@@ -36,9 +36,9 @@ class BaseIndex(object):
     def __init__(self, db, app, kind, prop):
         self.__db = db
         self.__app = app
+        self.__kind = kind
         self.__prop = prop
-        self.__key = _SCORES_INDEX % locals()
-        self.__prop_key = _PROPERTY_SCORE % locals()
+        self.__key = _SCORE_INDEX % locals()
 
     @property
     def db(self):
@@ -49,16 +49,16 @@ class BaseIndex(object):
         return self.__app
 
     @property
+    def kind(self):
+        return self.__kind
+
+    @property
     def prop(self):
         return self.__prop
 
     @property
     def key(self):
         return self.__key
-
-    @property
-    def prop_key(self):
-        return self.__prop_key
 
     def get_score(self, val):
         raise NotImplemented
@@ -181,8 +181,10 @@ class StringIndex(BaseIndex):
 
     def get_score(self, val):
         d = self.__depth
-        score = ''.join([str(ord(c)).zfill(3) for c in val[:d]]).ljust(d*3,'0')
-        return self.prop_key+score
+        score = ''.join([str(ord(c)).zfill(5) for c in val[:d]]).ljust(d*5,'0')
+        key_info = dict(
+            app=self.app, kind=self.kind, prop=self.prop, score=score)
+        return _PROPERTY_SCORE % key_info
 
     def get_value(self, val):
         return val.decode('utf-8')
