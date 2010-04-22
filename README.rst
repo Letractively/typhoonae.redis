@@ -17,6 +17,12 @@ manipulated with atomic operations to push/pop elements, add/remove elements,
 perform server side union, intersection, difference between sets, and so forth.
 Redis supports different kinds of sorting abilities.
 
+Since Redis supports master-slave replication with very fast non-blocking first
+synchronization, auto reconnection on net split, and so forth, it is very
+interesting as Datastore backend for TyphoonAE. This package contains the API
+proxy stub to seamlessly connect TyphoonAE or the Google App Engine SDK to a
+Redis database server.
+
 See http://code.google.com/p/redis for further information on Redis.
 
 
@@ -29,18 +35,6 @@ This software is released under the Apache License, Version 2.0. You may obtain
 a copy of the License at
 
   http://www.apache.org/licenses/LICENSE-2.0
-
-
-Using TyphoonAE Redis Datstore with the Google App Engine SDK
-=============================================================
-
-This buildout already downloads and patches the Google App Engine SDK for you.
-In order to use the Redis Datastore just start the development appserver with
-an additional option:
-
-  $ bin/dev_appserver --use_redis parts/google_appengine/demos/guestbook/
-
-A Redis server should be listening on port 6379.
 
 
 Building and Testing
@@ -60,9 +54,23 @@ To run all unit tests start the Redis server and enter the following command:
   $ bin/nosetests
 
 
+Using TyphoonAE Redis Datstore with the Google App Engine SDK
+=============================================================
+
+This buildout already downloads and patches the Google App Engine SDK for you.
+In order to use the Redis Datastore just start the development appserver with
+an additional option:
+
+  $ bin/dev_appserver --use_redis parts/google_appengine/demos/guestbook/
+
+A Redis server should be listening on port 6379.
+
+
 Contributing
 ============
 
 Since the TyphoonAE project uses Mercurial as SCM, you can easily create a
 clone of the Redis Datastore package on
 http://code.google.com/p/typhoonae/source/clones?repo=redis.
+
+Visit the project page http://typhoonae.googlecode.com for further information.
