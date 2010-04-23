@@ -449,11 +449,14 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
         pipe = pipe.sadd(kind_index, stored_key)
 
-        key_id = str(datastore_types.Key._FromPb(key))
+        key_digest = hashlib.md5(
+            str(datastore_types.Key._FromPb(key))).hexdigest()
         key_index = _PROPERTY_INDEX % {
-            'app': app, 'kind': kind, 'prop': u'__key__',
-            'encval': hashlib.md5(key_id).hexdigest()}
+            'app': app, 'kind': kind, 'prop': u'__key__', 'encval': key_digest}
         pipe = pipe.sadd(key_index, stored_key)
+        kindless_key_index = _PROPERTY_INDEX % {
+            'app': app, 'kind': '', 'prop': u'__key__', 'encval': key_digest}
+        pipe = pipe.sadd(kindless_key_index, stored_key)
 
         index_def = self.__indexes.get(kind)
         if not index_def:
@@ -952,6 +955,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 ('query is too large. may not have more than %s filters'
                 ' + sort orders ancestor total' % _MAX_QUERY_COMPONENTS))
 
+        results = []
+
         (filters, orders) = datastore_index.Normalize(
             query.filter_list(), query.order_list())
 
@@ -975,20 +980,23 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             val = datastore_types.FromPropertyPb(filt.property(0))
             op = _DATASTORE_OPERATORS[filt.op()]
 
+            if isinstance(val, datastore_types.Key):
+                val = str(val)
+
             digest = hashlib.md5(
                 self._GetRedisValueForValue(val).encode('utf-8')).hexdigest()
-            key_info = dict(
-                app=app_id, kind=query.kind(), prop=prop, encval=digest)
 
-            if isinstance(val, basestring):
-                alpha = True
+            if query.has_kind():
+                kind = query.kind()
             else:
-                alpha = False
+                kind = ''
+
+            key_info = dict(app=app_id, kind=kind, prop=prop, encval=digest)
 
             if op == '==':
                 index = _PROPERTY_INDEX % key_info
                 filter_results.append(
-                    self.__db.sort(index, start=offset, num=limit))
+                    self.__db.sort(index, alpha=True, start=offset, num=limit))
                 continue
 
             index = _KIND_INDEX % key_info
@@ -1003,6 +1011,10 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 # entities of a kind exist. A possible solution could be to
                 # partition the indexes into chunks of one thousand entries
                 # each.
+                if isinstance(val, basestring):
+                    alpha = True
+                else:
+                    alpha = False
                 pipe = self.__db.pipeline()
                 pipe = pipe.sort(index, by=pattern, alpha=alpha)
                 pipe = pipe.sort(index, by=pattern, get=pattern, alpha=alpha)
@@ -1033,6 +1045,17 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                     start=offset,
                     num=limit)
             )
+
+        if query.has_ancestor():
+            ancestor_path = query.ancestor().path().element_list()
+            def is_descendant(entity):
+                path = entity.key()._Key__reference.path().element_list()
+                return path[:len(ancestor_path)] == ancestor_path
+            results = filter(
+                is_descendant,
+                [datastore.Entity._FromPb(entity_pb.EntityProto(pb))
+                    for pb in self.__db.mget(result)])
+            results = [entity.ToPb() for entity in results]
 
         if orders:
             pipe = self.__db.pipeline()
@@ -1085,16 +1108,17 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         elif result and not orders:
             result = sorted(result)
 
-        if result:
+        if result and not results:
             if query.keys_only():
-                query_result.result_list().extend([
-                    self._MakeKeyOnlyEntityForRedisKey(key) for key in result])
+                results = [
+                    self._MakeKeyOnlyEntityForRedisKey(key) for key in result]
             else:
-                query_result.result_list().extend([
-                    entity_pb.EntityProto(pb) for pb in self.__db.mget(result)])
+                results = [
+                    entity_pb.EntityProto(pb) for pb in self.__db.mget(result)]
 
         # Pupulating the query result.
         query_result.mutable_cursor().set_app(app_id)
+        query_result.result_list().extend(results)
         # TODO Query cursors.
         query_result.mutable_cursor().set_cursor(0)
         query_result.set_keys_only(query.keys_only())

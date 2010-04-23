@@ -268,6 +268,25 @@ class DatastoreRedisTestCase(unittest.TestCase):
         self.assertEqual(1, Author.all().count())
         self.assertEqual(0, Book.all().count())
 
+    def testKindlessAncestorQueries(self):
+        """Perform kindless queries for entities with a given ancestor."""
+
+        class Author(db.Model):
+            name = db.StringProperty()
+
+        class Book(db.Model):
+            title = db.StringProperty()
+
+        author = Author(name='Mark Twain', key_name='marktwain').put()
+
+        book = Book(parent=author, title="The Adventures Of Tom Sawyer").put()
+
+        query = db.Query()
+        query.ancestor(author)
+        query.filter('__key__ = ', book)
+
+        self.assertEqual(book, query.get().key())
+
     def testRunQuery(self):
         """Runs some simple queries."""
 
