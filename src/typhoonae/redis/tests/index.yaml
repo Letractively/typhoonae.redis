@@ -58,3 +58,7 @@ indexes:
 - kind: Note
   properties:
   - name: timestamp
+
+- kind: Integer
+  properties:
+  - name: value
