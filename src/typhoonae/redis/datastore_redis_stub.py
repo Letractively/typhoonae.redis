@@ -31,6 +31,7 @@ from google.appengine.api import datastore_types
 from google.appengine.datastore import datastore_index
 from google.appengine.datastore import datastore_pb
 from google.appengine.datastore import entity_pb
+from google.appengine.ext.db import Key
 from google.appengine.runtime import apiproxy_errors
 
 import hashlib
