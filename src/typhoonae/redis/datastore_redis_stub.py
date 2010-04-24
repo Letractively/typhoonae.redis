@@ -53,6 +53,9 @@ _MAXIMUM_RESULTS      = 1000
 _MAX_QUERY_OFFSET     = 1000
 _MAX_QUERY_COMPONENTS = 100
 _MAX_TIMEOUT          = 30
+_BATCH_SIZE           = 20
+
+_CURSOR_CONCAT_STR = '!CURSOR!'
 
 _DATASTORE_OPERATORS = {
     datastore_pb.Query_Filter.LESS_THAN:             '<',
@@ -113,6 +116,199 @@ class _StoredEntity(object):
         return self.__protobuf.key()
 
 
+class QueryCursor(object):
+    """A query cursor.
+
+    Public properties:
+        cursor: the integer cursor
+        count: the original total number of results
+        keys_only: whether the query is keys_only
+        app: the app for which this cursor was created
+
+    Class attributes:
+        _next_cursor: the next cursor to allocate
+        _next_cursor_lock: protects _next_cursor
+        _offset: the internal index for where we are in the results
+        _limit: the limit on the original query, used to track remaining results
+    """
+    _next_cursor = 1
+    _next_cursor_lock = threading.Lock()
+
+    def __init__(self, db, query, results):
+        """Constructor.
+
+        Args:
+            db: The Redis database connection.
+            query: Query request protocol buffer instance.
+            results: A list of datastore.Entity instances.
+        """
+
+        self.__db = db
+
+        offset = 0
+        cursor_entity = None
+
+        if (query.has_compiled_cursor()
+                and query.compiled_cursor().position_list()):
+            (cursor_entity, inclusive) = self._DecodeCompiledCursor(
+                    query, query.compiled_cursor())
+
+        if query.has_offset():
+            offset += query.offset()
+
+        if offset > 0:
+            self.__last_result = results[min(len(results), offset) - 1]
+        else:
+            self.__last_result = cursor_entity
+
+        self.__results = results
+
+        self.__query = query
+        self.__offset = 0
+
+        self.app = query.app()
+        self.keys_only = query.keys_only()
+        self.count = len(self.__results)
+        self.cursor = self._AcquireCursorID()
+
+    def _AcquireCursorID(self):
+        """Acquires the next cursor id in a thread safe manner."""
+        self._next_cursor_lock.acquire()
+        try:
+            cursor_id = QueryCursor._next_cursor
+            QueryCursor._next_cursor += 1
+        finally:
+            self._next_cursor_lock.release()
+        return cursor_id
+
+    @staticmethod
+    def _ValidateQuery(query, query_info):
+        """Ensure that the given query matches the query_info.
+
+        Args:
+            query: datastore_pb.Query instance we are chacking
+            query_info: datastore_pb.Query instance we want to match
+
+        Raises BadRequestError on failure.
+        """
+        error_msg = 'Cursor does not match query: %s'
+        exc = datastore_errors.BadRequestError
+        if query_info.filter_list() != query.filter_list():
+            raise exc(error_msg % 'filters do not match')
+        if query_info.order_list() != query.order_list():
+            raise exc(error_msg % 'orders do not match')
+
+        for attr in ('ancestor', 'kind', 'name_space', 'search_query'):
+            query_info_has_attr = getattr(query_info, 'has_%s' % attr)
+            query_info_attr = getattr(query_info, attr)
+            query_has_attr = getattr(query, 'has_%s' % attr)
+            query_attr = getattr(query, attr)
+            if query_info_has_attr():
+                if not query_has_attr() or query_info_attr() != query_attr():
+                    raise exc(error_msg % ('%s does not match' % attr))
+            elif query_has_attr():
+                raise exc(error_msg % ('%s does not match' % attr))
+
+    @staticmethod
+    def _MinimalQueryInfo(query):
+        """Extract the minimal set of information for query matching.
+
+        Args:
+            query: A datastore_pb.Query instance from which to extract info.
+
+        Returns:
+            The datastore_pb.Query instance suitable for matching against when
+            validating cursors.
+        """
+        query_info = datastore_pb.Query()
+        query_info.set_app(query.app())
+
+        for filter in query.filter_list():
+            query_info.filter_list().append(filter)
+        for order in query.order_list():
+            query_info.order_list().append(order)
+
+        if query.has_ancestor():
+            query_info.mutable_ancestor().CopyFrom(query.ancestor())
+
+        for attr in ('kind', 'name_space', 'search_query'):
+            query_has_attr = getattr(query, 'has_%s' % attr)
+            query_attr = getattr(query, attr)
+            query_info_set_attr = getattr(query_info, 'set_%s' % attr)
+            if query_has_attr():
+                query_info_set_attr(query_attr())
+
+        return query_info
+
+    @classmethod
+    def _DecodeCompiledCursor(cls, query, compiled_cursor):
+        """Convert a compiled_cursor into a cursor_entity.
+
+        Returns:
+            (cursor_entity, inclusive): A datastore.Entity and if it should be
+            included in the result set.
+        """
+        assert len(compiled_cursor.position_list()) == 1
+
+        position = compiled_cursor.position(0)
+        entity_pb = datastore_pb.EntityProto()
+        (query_info_encoded, entity_encoded) = position.start_key().split(
+                _CURSOR_CONCAT_STR, 1)
+        query_info_pb = datastore_pb.Query()
+        query_info_pb.ParseFromString(query_info_encoded)
+        if query:
+            cls._ValidateQuery(query, query_info_pb)
+
+        entity_pb.ParseFromString(entity_encoded)
+        return (datastore.Entity._FromPb(entity_pb, True),
+                        position.start_inclusive())
+
+    def _EncodeCompiledCursor(self, query, compiled_cursor):
+        """Convert the current state of the cursor into a compiled_cursor.
+
+        Args:
+            query: The datastore_pb.Query this cursor is related to.
+            compiled_cursor: An empty datstore_pb.CompiledCursor.
+        """
+        if self.__last_result:
+            position = compiled_cursor.add_position()
+            query_info = self._MinimalQueryInfo(query)
+            start_key = _CURSOR_CONCAT_STR.join((
+                    query_info.Encode(),
+                    self.__last_result.Encode()))
+            position.set_start_key(str(start_key))
+            position.set_start_inclusive(False)
+
+    def PopulateQueryResult(self, result, count, compile=False):
+        """Populates a QueryResult with this cursor and the given results.
+
+        Args:
+            result: A datastore_pb.QueryResult entity.
+            count: An integer of how many results to return.
+            compile: Boolean, whether we are compiling this query.
+        """
+        if count > _MAXIMUM_RESULTS:
+            count = _MAXIMUM_RESULTS
+
+        result.mutable_cursor().set_app(self.app)
+        result.mutable_cursor().set_cursor(self.cursor)
+        result.set_keys_only(self.keys_only)
+
+        results = self.__results[self.__offset:self.__offset + count]
+        count = len(results)
+        if count:
+            self.__offset += count
+            self.__last_result = results[count - 1]
+
+        results_pbs = results
+        result.result_list().extend(results_pbs)
+
+        result.set_more_results(self.__offset < self.count)
+        if compile:
+            self._EncodeCompiledCursor(
+                self.__query, result.mutable_compiled_cursor())
+
+
 class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
     """Persistent stub for the Python datastore API.
 
@@ -157,6 +353,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         # In-memory entity cache.
         self.__entities_cache = {}
         self.__entities_cache_lock = threading.Lock()
+        self.__cursors = {}
 
         # Sequential IDs.
         self.__next_id_key = _NEXT_ID % {'app': self.__app_id}
@@ -185,6 +382,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         self.__inside_tx = False
         self.__tx_actions = []
         self.__next_tx_handle = 1
+        self.__cursors = {}
         self.__entities_cache = {}
 
     def __ValidateAppId(self, app_id):
@@ -449,14 +647,16 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
         pipe = pipe.sadd(kind_index, stored_key)
 
-        key_digest = hashlib.md5(
-            str(datastore_types.Key._FromPb(key))).hexdigest()
+        key_value = str(datastore_types.Key._FromPb(key))
+        key_digest = hashlib.md5(key_value).hexdigest()
         key_index = _PROPERTY_INDEX % {
             'app': app, 'kind': kind, 'prop': u'__key__', 'encval': key_digest}
         pipe = pipe.sadd(key_index, stored_key)
         kindless_key_index = _PROPERTY_INDEX % {
             'app': app, 'kind': '', 'prop': u'__key__', 'encval': key_digest}
         pipe = pipe.sadd(kindless_key_index, stored_key)
+        key_prop = _PROPERTY_VALUE % {'key': stored_key, 'prop': '__key__'}
+        pipe = pipe.set(key_prop, key_value)
 
         index_def = self.__indexes.get(kind)
         if not index_def:
@@ -590,10 +790,11 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         return new_val
 
     @classmethod
-    def _ApplyOperator(cls, op, term, keys, values):
+    def _ApplyOperator(cls, prop, op, term, keys, values):
         """Apply a given operator in combination with a search term.
 
         Args:
+            prop: The property name.
             op: A string representing an equality or inequality operator.
             term: A string or unicode string containing the search term.
             keys: List of Redis keys.
@@ -625,9 +826,14 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                     r.append((k, v))
             return r
 
-        data = sorted(
-            _flatten([(keys[p], values[p]) for p in range(len(keys))]),
-            key=lambda t:t[1])
+        if prop == '__key__':
+            data = sorted(
+                _flatten([(keys[p], values[p]) for p in range(len(keys))]),
+                key=lambda t:t[0])
+        else:
+            data = sorted(
+                _flatten([(keys[p], values[p]) for p in range(len(keys))]),
+                key=lambda t:t[1])
 
         keys = []; values = []
         for k, v in data:
@@ -960,6 +1166,23 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         (filters, orders) = datastore_index.Normalize(
             query.filter_list(), query.order_list())
 
+        if query.has_compiled_cursor():
+            cursor = QueryCursor._DecodeCompiledCursor(
+                None, query.compiled_cursor())
+            new_filter = query.add_filter()
+            new_filter.set_op(3)
+            new_prop = new_filter.add_property()
+            new_prop.set_name('__key__')
+            new_prop.set_multiple(False)
+            new_val = new_prop.mutable_value()
+            ref = new_val.mutable_referencevalue()
+            ref.set_app(app_id)
+            ref.set_name_space(namespace)
+            path_element = ref.add_pathelement()
+            path_element.set_type(cursor[0].key().kind())
+            path_element.set_id(cursor[0].key().id())
+            query.clear_compiled_cursor()
+
         if query.has_offset():
             offset = query.offset()
         else:
@@ -1002,7 +1225,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             index = _KIND_INDEX % key_info
             pattern = '*:' + prop
 
-            if isinstance(val, basestring):
+            if isinstance(val, basestring) and prop != '__key__':
                 keys = indexes.StringIndex(
                     self.__db, self.__app_id, query.kind(), prop)
                 filter_results.append(keys.filter(op, val, limit))
@@ -1021,7 +1244,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
                 keys, vals = pipe.execute()
 
-                filter_results.append(self._ApplyOperator(op, val, keys, vals))
+                filter_results.append(
+                    self._ApplyOperator(prop, op, val, keys, vals))
 
         key_info = dict(app=app_id, kind=query.kind())
 
@@ -1116,13 +1340,22 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 results = [
                     entity_pb.EntityProto(pb) for pb in self.__db.mget(result)]
 
-        # Pupulating the query result.
-        query_result.mutable_cursor().set_app(app_id)
-        query_result.result_list().extend(results)
-        # TODO Query cursors.
-        query_result.mutable_cursor().set_cursor(0)
-        query_result.set_keys_only(query.keys_only())
-        query_result.set_more_results(False)
+        cursor = QueryCursor(self.__db, query, results)
+        self.__cursors[cursor.cursor] = cursor
+
+        if query.has_count():
+            count = query.count()
+        elif query.has_limit():
+            count = query.limit()
+        else:
+            count = _BATCH_SIZE
+
+        cursor.PopulateQueryResult(query_result, count, compile=query.compile())
+
+        if query.compile():
+            compiled_query = query_result.mutable_compiled_query()
+            compiled_query.set_keys_only(query.keys_only())
+            compiled_query.mutable_primaryscan().set_index_name(query.Encode())
 
     def _Dynamic_Next(self, next_request, query_result):
         """Gets the next batch of query results.

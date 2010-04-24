@@ -699,3 +699,40 @@ class DatastoreRedisTestCase(unittest.TestCase):
             MyModel(property="Random data.").put()
 
         self.assertEqual(50, MyModel.all().count(limit=50))
+
+    def testCursors(self):
+        """Tests the cursor API."""
+
+        class MyModel(db.Model):
+            value = db.IntegerProperty()
+
+        for i in xrange(0, 2000):
+            MyModel(value=i).put()
+
+        # Set up a simple query
+        query = MyModel.all()
+
+        # Fetch some results
+        a = query.fetch(500)
+        self.assertEqual(0L, a[0].value)
+        self.assertEqual(499L, a[-1].value)
+
+        b = query.fetch(500, offset=500)
+        self.assertEqual(500L, b[0].value)
+        self.assertEqual(999L, b[-1].value)
+
+        # Perform query with cursor
+        cursor = query.cursor()
+        query.with_cursor(cursor)
+
+        c = query.fetch(200)
+        self.assertEqual(1000L, c[0].value)
+        self.assertEqual(1199L, c[-1].value)
+
+        query.with_cursor(query.cursor())
+        d = query.fetch(500)
+        self.assertEqual(1200L, d[0].value)
+        self.assertEqual(1699L, d[-1].value)
+
+        query.with_cursor(query.cursor())
+        self.assertEqual(1700L, query.get().value)
