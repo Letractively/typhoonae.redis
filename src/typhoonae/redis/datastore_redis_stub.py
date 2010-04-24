@@ -1129,6 +1129,34 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         if not all(pipe.execute()):
             return
 
+    def _ApplyCursorToQuery(self, query):
+        """Apply compiled cursor to given query.
+
+        Args:
+            query: An datastore_pb.Query instance.
+        """
+        cursor = QueryCursor._DecodeCompiledCursor(
+            None, query.compiled_cursor())
+
+        new_filter = query.add_filter()
+        new_filter.set_op(3)
+
+        new_prop = new_filter.add_property()
+        new_prop.set_name('__key__')
+        new_prop.set_multiple(False)
+
+        new_val = new_prop.mutable_value()
+
+        referencevalue = new_val.mutable_referencevalue()
+        referencevalue.set_app(query.app())
+        referencevalue.set_name_space(query.name_space())
+
+        path_element = referencevalue.add_pathelement()
+        path_element.set_type(cursor[0].key().kind())
+        path_element.set_id(cursor[0].key().id())
+
+        query.clear_compiled_cursor()
+
     def _Dynamic_RunQuery(self, query, query_result):
         """Run given query.
 
@@ -1167,21 +1195,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             query.filter_list(), query.order_list())
 
         if query.has_compiled_cursor():
-            cursor = QueryCursor._DecodeCompiledCursor(
-                None, query.compiled_cursor())
-            new_filter = query.add_filter()
-            new_filter.set_op(3)
-            new_prop = new_filter.add_property()
-            new_prop.set_name('__key__')
-            new_prop.set_multiple(False)
-            new_val = new_prop.mutable_value()
-            ref = new_val.mutable_referencevalue()
-            ref.set_app(app_id)
-            ref.set_name_space(namespace)
-            path_element = ref.add_pathelement()
-            path_element.set_type(cursor[0].key().kind())
-            path_element.set_id(cursor[0].key().id())
-            query.clear_compiled_cursor()
+            self._ApplyCursorToQuery(query)
 
         if query.has_offset():
             offset = query.offset()
@@ -1190,6 +1204,8 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
         if query.has_limit():
             limit = query.limit()
+        elif query.has_count():
+            limit = query.count()
         else:
             limit = _MAXIMUM_RESULTS
 
@@ -1343,14 +1359,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         cursor = QueryCursor(self.__db, query, results)
         self.__cursors[cursor.cursor] = cursor
 
-        if query.has_count():
-            count = query.count()
-        elif query.has_limit():
-            count = query.limit()
-        else:
-            count = _BATCH_SIZE
-
-        cursor.PopulateQueryResult(query_result, count, compile=query.compile())
+        cursor.PopulateQueryResult(query_result, limit, compile=query.compile())
 
         if query.compile():
             compiled_query = query_result.mutable_compiled_query()
