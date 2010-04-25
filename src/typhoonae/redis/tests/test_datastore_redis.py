@@ -672,14 +672,20 @@ class DatastoreRedisTestCase(unittest.TestCase):
         query = db.GqlQuery("SELECT * FROM Pizza WHERE __key__ IN :1", [key])
         self.assertEqual(0, query.count())
 
-    def testDifferentProperties(self):
-        """Tests different property types."""
+    def testVariousPropertiyTypes(self):
+        """Tests various property types."""
 
         class Note(db.Model):
             timestamp = db.DateTimeProperty(auto_now=True)
+            description = db.StringProperty()
+            author_email = db.EmailProperty()
+            location = db.GeoPtProperty()
 
-        note = Note()
-        note.put()
+        Note(
+            description="My first note.",
+            author_email="me@inter.net",
+            location="52.518,13.408",
+        ).put()
 
         query = db.GqlQuery("SELECT * FROM Note ORDER BY timestamp DESC")
         self.assertEqual(1, query.count())
@@ -687,6 +693,28 @@ class DatastoreRedisTestCase(unittest.TestCase):
         query = db.GqlQuery(
             "SELECT * FROM Note WHERE timestamp <= :1", datetime.datetime.now())
 
+        self.assertEqual(1, query.count())
+
+        note = query.get()
+
+        self.assertEqual("My first note.", note.description)
+
+        self.assertEqual(db.Email("me@inter.net"), note.author_email)
+        self.assertEqual("me@inter.net", note.author_email)
+
+        self.assertEqual(
+            datastore_types.GeoPt(52.518000000000001, 13.407999999999999),
+            note.location)
+        self.assertEqual("52.518,13.408", note.location)
+
+        del note
+
+        query = Note.all().filter(
+            'location =',
+            datastore_types.GeoPt(52.518000000000001, 13.407999999999999))
+        self.assertEqual(1, query.count())
+
+        query = Note.all().filter('location =', "52.518,13.408")
         self.assertEqual(1, query.count())
 
     def testQueriesWithLimit(self):

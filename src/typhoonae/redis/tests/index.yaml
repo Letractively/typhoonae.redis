@@ -58,6 +58,9 @@ indexes:
 - kind: Note
   properties:
   - name: timestamp
+  - name: description
+  - name: author_email
+  - name: location
 
 - kind: Integer
   properties:
