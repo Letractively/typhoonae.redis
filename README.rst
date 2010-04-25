@@ -9,19 +9,20 @@ Introduction
 ============
 
 This package contains an API proxy stub to connect TyphoonAE or the Google App
-Engine SDK to Redis as Datastore backend.
+Engine SDK to a Redis database and use it as Datastore backend.
 
-Redis is an advanced key-value store. Its dataset is not volatile, and values
-can be strings, lists, sets, and ordered sets. All this data types can be
-manipulated with atomic operations to push/pop elements, add/remove elements,
-perform server side union, intersection, difference between sets, and so forth.
-Redis supports different kinds of sorting abilities.
+Redis is an advanced key-value store. In contrast to approaches like memcache,
+its dataset is not volatile, and values can be strings, lists, sets, and
+ordered sets. All this data types can be manipulated with atomic operations to
+push/pop elements, add/remove elements, perform server side union,
+intersection, difference between sets, and so forth. And Redis supports
+different kinds of sorting abilities.
 
-Since Redis supports master-slave replication with very fast non-blocking first
-synchronization, auto reconnection on net split, and so forth, it is very
-interesting as Datastore backend for TyphoonAE. This package contains the API
-proxy stub to seamlessly connect TyphoonAE or the Google App Engine SDK to a
-Redis database server.
+Since Redis provides master-slave replication with very fast non-blocking first
+synchronization and auto reconnection on net split, it is very interesting as
+Datastore backend for TyphoonAE. This package contains the API proxy stub to
+seamlessly connect TyphoonAE or the Google App Engine SDK to a Redis database
+server.
 
 See http://code.google.com/p/redis for further information on Redis.
 
