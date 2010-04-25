@@ -735,11 +735,16 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
         pipe = pipe.srem(kind_index, stored_key)
 
-        key_id = str(datastore_types.Key._FromPb(key))
+        key_value = str(datastore_types.Key._FromPb(key))
+        key_digest = hashlib.md5(key_value).hexdigest()
         key_index = _PROPERTY_INDEX % {
-            'app': app, 'kind': kind, 'prop': u'__key__',
-            'encval': hashlib.md5(key_id).hexdigest()}
+            'app': app, 'kind': kind, 'prop': u'__key__', 'encval': key_digest}
         pipe = pipe.srem(key_index, stored_key)
+        kindless_key_index = _PROPERTY_INDEX % {
+            'app': app, 'kind': '', 'prop': u'__key__', 'encval': key_digest}
+        pipe = pipe.srem(kindless_key_index, stored_key)
+        key_prop = _PROPERTY_VALUE % {'key': stored_key, 'prop': '__key__'}
+        pipe = pipe.delete(key_prop)
 
         index_def = self.__indexes.get(kind)
         if not index_def:
