@@ -287,6 +287,11 @@ class DatastoreRedisTestCase(unittest.TestCase):
 
         self.assertEqual(book, query.get().key())
 
+        book = query.get()
+        book.delete()
+
+        self.assertEqual(0, query.count())
+
     def testRunQuery(self):
         """Runs some simple queries."""
 

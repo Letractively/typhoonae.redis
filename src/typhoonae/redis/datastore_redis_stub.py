@@ -1292,16 +1292,14 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                     num=limit)
             )
 
-        if query.has_ancestor():
+        if query.has_ancestor() and result:
             ancestor_path = query.ancestor().path().element_list()
-            def is_descendant(entity):
-                path = entity.key()._Key__reference.path().element_list()
+            def is_descendant(pb):
+                path = pb.key().path().element_list()
                 return path[:len(ancestor_path)] == ancestor_path
             results = filter(
                 is_descendant,
-                [datastore.Entity._FromPb(entity_pb.EntityProto(pb))
-                    for pb in self.__db.mget(result)])
-            results = [entity.ToPb() for entity in results]
+                [entity_pb.EntityProto(d) for d in self.__db.mget(result)])
 
         if orders:
             pipe = self.__db.pipeline()
