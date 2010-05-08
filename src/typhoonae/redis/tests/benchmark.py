@@ -34,20 +34,16 @@ indexes:
 
 - kind: FirstModel
   properties:
-  - name: prop1
   - name: prop2
-  - name: prop3
-  - name: prop4
-  - name: prop5
 """
 
 
 class FirstModel(db.Model):
-    prop1 = db.IntegerProperty()
+    prop1 = db.IntegerProperty(indexed=False)
     prop2 = db.StringProperty()
-    prop3 = db.StringListProperty()
-    prop4 = db.StringProperty()
-    prop5 = db.IntegerProperty()
+    prop3 = db.StringListProperty(indexed=False)
+    prop4 = db.StringProperty(indexed=False)
+    prop5 = db.IntegerProperty(indexed=False)
 
 
 def get_datastore_stub():
