@@ -659,11 +659,6 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         key_prop = _PROPERTY_VALUE % {'key': stored_key, 'prop': '__key__'}
         pipe = pipe.set(key_prop, key_value)
 
-        index_def = self.__indexes.get(kind)
-        if not index_def:
-            pipe.execute()
-            return
-
         prop_dict = self._GetPropertyDict(entity.protobuf)
 
         buffers = []
@@ -679,8 +674,10 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
 
             return pipe
 
-        for prop in index_def.property_list():
-            name = prop.name()
+        names = set(entity.native.keys()).difference(
+            entity.native.unindexed_properties())
+
+        for name in names:
             value = entity.native[name]
             key_info = dict(app=app, kind=kind, prop=name)
             if isinstance(value, list):
@@ -746,17 +743,14 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         key_prop = _PROPERTY_VALUE % {'key': stored_key, 'prop': '__key__'}
         pipe = pipe.delete(key_prop)
 
-        index_def = self.__indexes.get(kind)
-        if not index_def:
-            pipe.execute()
-            return
-
         prop_dict = self._GetPropertyDict(entity.protobuf)
 
         buffers = []
 
-        for prop in index_def.property_list():
-            name = prop.name()
+        names = set(entity.native.keys()).difference(
+            entity.native.unindexed_properties())
+
+        for name in names:
             value = self._GetRedisValueForValue(entity.native[name])
             digest = hashlib.md5(value.encode('utf-8')).hexdigest()
 
