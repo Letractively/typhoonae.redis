@@ -34,7 +34,7 @@ diff -Naur a/google/appengine/tools/dev_appserver.py b/google/appengine/tools/de
      datastore = datastore_sqlite_stub.DatastoreSqliteStub(
          app_id, datastore_path, require_indexes=require_indexes,
          trusted=trusted)
-+  if use_redis:
++  elif use_redis:
 +    from google.appengine.datastore import datastore_index    
 +    import datastore_redis_stub
 +    try:
