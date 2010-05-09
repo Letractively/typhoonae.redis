@@ -627,6 +627,45 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         v = datastore_types.FromPropertyPb
         return dict([(p.name(), v(p)) for p in entity.property_list()])
 
+    @classmethod
+    def _IndexKey(cls, key, pipe, unindex=False):
+        """Write or delete key to/from key index.
+
+        Args:
+            key: A reference.
+            pipe: The Redis pipe.
+            unindex: Boolean whether index or unindex the key.
+        """
+        app = key.app()
+        kind = key.path().element_list()[-1].type()
+
+        stored_key = cls._GetRedisKeyForKey(key)
+        string_key = str(datastore_types.Key._FromPb(key))
+
+        digest = hashlib.md5(string_key).hexdigest()
+
+        key_index = _PROPERTY_INDEX % {
+            'app': app, 'kind': kind, 'prop': u'__key__', 'encval': digest}
+
+        kindless_key_index = _PROPERTY_INDEX % {
+            'app': app, 'kind': '', 'prop': u'__key__', 'encval': digest}
+
+        if unindex:
+            pipe = pipe.srem(key_index, stored_key)
+            pipe = pipe.srem(kindless_key_index, stored_key)
+        else:
+            pipe = pipe.sadd(key_index, stored_key)
+            pipe = pipe.sadd(kindless_key_index, stored_key)
+
+        key_prop = _PROPERTY_VALUE % {'key': stored_key, 'prop': '__key__'}
+
+        if unindex:
+            pipe = pipe.delete(key_prop)
+        else:
+            pipe = pipe.set(key_prop, string_key)
+
+        return pipe
+
     def _IndexEntity(self, entity):
         """Index a given entity.
 
@@ -648,16 +687,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
         pipe = pipe.sadd(kind_index, stored_key)
 
-        key_value = str(datastore_types.Key._FromPb(key))
-        key_digest = hashlib.md5(key_value).hexdigest()
-        key_index = _PROPERTY_INDEX % {
-            'app': app, 'kind': kind, 'prop': u'__key__', 'encval': key_digest}
-        pipe = pipe.sadd(key_index, stored_key)
-        kindless_key_index = _PROPERTY_INDEX % {
-            'app': app, 'kind': '', 'prop': u'__key__', 'encval': key_digest}
-        pipe = pipe.sadd(kindless_key_index, stored_key)
-        key_prop = _PROPERTY_VALUE % {'key': stored_key, 'prop': '__key__'}
-        pipe = pipe.set(key_prop, key_value)
+        pipe = self._IndexKey(key, pipe)
 
         prop_dict = self._GetPropertyDict(entity.protobuf)
 
@@ -732,16 +762,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         kind_index = _KIND_INDEX % {'app': app, 'kind': kind}
         pipe = pipe.srem(kind_index, stored_key)
 
-        key_value = str(datastore_types.Key._FromPb(key))
-        key_digest = hashlib.md5(key_value).hexdigest()
-        key_index = _PROPERTY_INDEX % {
-            'app': app, 'kind': kind, 'prop': u'__key__', 'encval': key_digest}
-        pipe = pipe.srem(key_index, stored_key)
-        kindless_key_index = _PROPERTY_INDEX % {
-            'app': app, 'kind': '', 'prop': u'__key__', 'encval': key_digest}
-        pipe = pipe.srem(kindless_key_index, stored_key)
-        key_prop = _PROPERTY_VALUE % {'key': stored_key, 'prop': '__key__'}
-        pipe = pipe.delete(key_prop)
+        pipe = self._IndexKey(key, pipe, unindex=True)
 
         prop_dict = self._GetPropertyDict(entity.protobuf)
 
@@ -1238,9 +1259,6 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                     self.__db.sort(index, alpha=True, start=offset, num=limit))
                 continue
 
-            index = _KIND_INDEX % key_info
-            pattern = '*:' + prop
-
             if isinstance(val, basestring) and prop != '__key__':
                 keys = indexes.StringIndex(
                     self.__db, self.__app_id, query.kind(), prop)
@@ -1248,12 +1266,15 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
             else:
                 # TODO This ends up in potentially very large results the more
                 # entities of a kind exist. A possible solution could be to
-                # partition the indexes into chunks of one thousand entries
-                # each.
+                # partition the indexes.
                 if isinstance(val, basestring):
                     alpha = True
                 else:
                     alpha = False
+
+                index = _KIND_INDEX % key_info
+                pattern = '*:' + prop
+
                 pipe = self.__db.pipeline()
                 pipe = pipe.sort(index, by=pattern, alpha=alpha)
                 pipe = pipe.sort(index, by=pattern, get=pattern, alpha=alpha)
