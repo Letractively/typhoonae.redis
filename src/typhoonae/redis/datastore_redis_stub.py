@@ -91,6 +91,7 @@ class _StoredEntity(object):
       Args:
           entity: entity_pb.EntityProto to store.
       """
+      assert isinstance(entity, entity_pb.EntityProto)
       self.__protobuf = entity
 
     @property
