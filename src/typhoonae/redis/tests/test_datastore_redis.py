@@ -32,8 +32,8 @@ import typhoonae.redis.datastore_redis_stub
 import unittest
 
 
-class DatastoreRedisTestCase(unittest.TestCase):
-    """Testing the TyphoonAE Datastore Redis API proxy stub."""
+class DatastoreRedisTestCaseBase(unittest.TestCase):
+    """Base class for testing the TyphoonAE Datastore Redis API proxy stub."""
 
     def setUp(self):
         """Sets up test environment and regisers stub."""
@@ -76,6 +76,44 @@ class DatastoreRedisTestCase(unittest.TestCase):
         """Clears all data."""
 
         self.stub.Clear()
+
+
+class StoredEntityTestCase(DatastoreRedisTestCaseBase):
+    """Testing entity wrapper class."""
+
+    def testStoredEntity(self):
+        """Initializes a stored entity instance."""
+
+        class MyModel(db.Model):
+            contents = db.StringProperty()
+
+        key = MyModel(contents="Some contents.").save()
+
+        entity = db.get(key)
+
+        protobuf = db.model_to_protobuf(entity)
+
+        stored_entity = typhoonae.redis.datastore_redis_stub._StoredEntity(
+            protobuf)
+
+        self.assertEqual(protobuf, stored_entity.protobuf)
+
+        self.assertEqual(
+            'j\x15j\x04testr\r\x0b\x12\x07MyModel\x18\x01\x0cr\x1e\x1a\x08'
+            'contents \x00*\x10\x1a\x0eSome contents.\x82\x01\r\x0b\x12\x07'
+            'MyModel\x18\x01\x0c',
+            stored_entity.encoded_protobuf)
+
+        self.assertEqual({u'contents': u'Some contents.'}, stored_entity.native)
+
+        self.assertTrue(
+            isinstance(
+                stored_entity.key(),
+                google.appengine.datastore.entity_pb.Reference))
+
+
+class DatastoreRedisTestCase(DatastoreRedisTestCaseBase):
+    """Testing the TyphoonAE Datastore Redis API proxy stub."""
 
     def testStub(self):
         """Tests whether our stub is registered."""
@@ -491,6 +529,15 @@ class DatastoreRedisTestCase(unittest.TestCase):
         self.assertEqual(
             ['Earth', 'Mars'],
             [planet.name for planet in query.run()])
+
+        query = Planet.all().filter('distance >=', 93.0).order('distance')
+        self.assertEqual(
+            [u'Earth', u'Mars', u'Saturn'],
+            [planet.name for planet in query.run()])
+
+        query = Planet.all().filter('distance ==', 93.0)
+        self.assertEqual(
+            [u'Earth'], [planet.name for planet in query.run()])
 
     def testQueriesWithMultipleFiltersAndOrders(self):
         """Tests queries with multiple filters and orders."""
