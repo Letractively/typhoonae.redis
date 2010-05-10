@@ -780,6 +780,22 @@ class DatastoreRedisTestCase(DatastoreRedisTestCaseBase):
 
         self.assertEqual(50, MyModel.all().count(limit=50))
 
+    def testAllocateIds(self):
+        """ """
+
+        class EmptyModel(db.Model):
+            pass
+
+        for i in xrange(0, 1000):
+            key = EmptyModel().put()
+
+        query = db.GqlQuery("SELECT * FROM EmptyModel")
+        self.assertEqual(1000, query.count())
+
+        start, end = db.allocate_ids(key, 2000)
+        self.assertEqual(start, 1000)
+        self.assertEqual(end, 2999)
+
     def testCursors(self):
         """Tests the cursor API."""
 
