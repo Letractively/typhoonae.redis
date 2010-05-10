@@ -1483,7 +1483,30 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         """ """
 
     def _Dynamic_AllocateIds(self, allocate_ids_request, allocate_ids_response):
-        """ """
+        """Allocate a batch of IDs in the datastore.
+
+        Args:
+            allocate_ids_request: A datastore_pb.AllocateIdsRequest instance.
+            allocate_ids_response: A datastore_pb.AllocateIdsResponse instance.
+        """
+        model_key = allocate_ids_request.model_key()
+        size = allocate_ids_request.size()
+
+        self.__ValidateAppId(model_key.app())
+
+        try:
+            self.__id_lock.acquire()
+            start = self.__next_id
+            pipe = self.__db.pipeline()
+            pipe.incr(self.__next_id_key, size)
+            next_id = int(pipe.execute().pop() or 0)
+            self.__next_id = next_id
+            end = self.__next_id - 1
+        finally:
+            self.__id_lock.release()
+
+        allocate_ids_response.set_start(start)
+        allocate_ids_response.set_end(end)
 
     def _Dynamic_CreateIndex(self, index, id_response):
         """ """
