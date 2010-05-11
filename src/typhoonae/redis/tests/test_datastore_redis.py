@@ -22,7 +22,9 @@ from google.appengine.ext import db
 import datetime
 import google.appengine.api.apiproxy_stub
 import google.appengine.api.apiproxy_stub_map
+import google.appengine.api.datastore_admin
 import google.appengine.api.datastore_errors
+import google.appengine.api.users
 import google.appengine.datastore.entity_pb
 import google.appengine.runtime.apiproxy_errors
 import os
@@ -41,6 +43,8 @@ class DatastoreRedisTestCaseBase(unittest.TestCase):
         # Set required environment variables
         os.environ['APPLICATION_ID'] = 'test'
         os.environ['AUTH_DOMAIN'] = 'mydomain.local'
+        os.environ['USER_EMAIL'] = 'tester@mydomain.local'
+        os.environ['USER_IS_ADMIN'] = '1'
 
         # Read index definitions.
         index_yaml = open(
@@ -305,6 +309,17 @@ class DatastoreRedisTestCase(DatastoreRedisTestCaseBase):
 
         self.assertEqual(1, Author.all().count())
         self.assertEqual(0, Book.all().count())
+
+        marktwain = Author.get_by_key_name('marktwain')
+
+        def query_tx():
+            query = db.Query()
+            query.filter('__key__ = ', marktwain.key())
+            author = query.get()
+
+        self.assertRaises(
+            google.appengine.api.datastore_errors.BadRequestError,
+            db.run_in_transaction, query_tx)
 
     def testKindlessAncestorQueries(self):
         """Perform kindless queries for entities with a given ancestor."""
@@ -732,11 +747,13 @@ class DatastoreRedisTestCase(DatastoreRedisTestCaseBase):
             description = db.StringProperty()
             author_email = db.EmailProperty()
             location = db.GeoPtProperty()
+            user = db.UserProperty()
 
         Note(
             description="My first note.",
             author_email="me@inter.net",
             location="52.518,13.408",
+            user=google.appengine.api.users.get_current_user()
         ).put()
 
         query = db.GqlQuery("SELECT * FROM Note ORDER BY timestamp DESC")
@@ -840,3 +857,15 @@ class DatastoreRedisTestCase(DatastoreRedisTestCaseBase):
         e = query.fetch(50)
         self.assertEqual(601, e[0].value)
         self.assertEqual(650, e[-1].value)
+
+    def testGetSchema(self):
+        """Infers an app's schema from the entities in the datastore."""
+
+        class Foo(db.Model):
+            foobar = db.IntegerProperty(default=42)
+
+        Foo().put()
+
+        entity_pbs = google.appengine.api.datastore_admin.GetSchema()
+        entity = google.appengine.api.datastore.Entity.FromPb(entity_pbs.pop())
+        self.assertEqual('Foo', entity.key().kind())
