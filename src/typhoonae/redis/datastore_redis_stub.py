@@ -37,6 +37,7 @@ from google.appengine.runtime import apiproxy_errors
 import hashlib
 import indexes
 import logging
+import re
 import redis
 import string
 import sys
@@ -71,7 +72,7 @@ _REDIS_SORT_ALPHA_TYPES = frozenset(['str', 'unicode', 'datetime'])
 
 # Reserved Redis keys
 _ENTITY_GROUP_LOCK = '%(app)s!%(entity_group)s:\vLOCK'
-_KIND_INDEX        = '%(app)s!%(kind)s:\vKEYS'
+_KIND_INDEX        = '%(app)s!%(kind)s:\vALL_KEYS'
 _NEXT_ID           = '%(app)s!\vNEXT_ID'
 _PROPERTY_INDEX    = '%(app)s!%(kind)s:%(prop)s:%(encval)s:\vKEYS'
 _PROPERTY_TYPES    = '%(app)s!%(kind)s:%(prop)s:\vTYPES'
@@ -1480,7 +1481,35 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         self.__tx_actions = []
 
     def _Dynamic_GetSchema(self, req, schema):
-        """ """
+        """Find all stored kinds.
+
+        This is used for the development server only.
+
+        Args:
+            req: A datastore_pb.GetSchemaRequest instance.
+            schema: A datastore_pb.Schema instance.
+        """
+        app = req.app()
+        self.__ValidateAppId(app)
+
+        kind = '*'
+
+        kind_indexes = self.__db.keys(_KIND_INDEX % locals())
+
+        kinds = []
+
+        for key in kind_indexes:
+            entities = self.__db.sort(key, alpha=True, start=0, num=1, get='*')
+            if entities:
+                kinds.append(entity_pb.EntityProto(entities.pop()))
+
+        for kind_pb in kinds:
+            kind = schema.add_kind()
+            kind.CopyFrom(kind_pb)
+            if not req.properties():
+                kind.clear_property()
+
+        schema.set_more_results(False)
 
     def _Dynamic_AllocateIds(self, allocate_ids_request, allocate_ids_response):
         """Allocate a batch of IDs in the datastore.
