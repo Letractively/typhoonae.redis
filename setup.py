@@ -25,7 +25,7 @@ def read(*rnames):
 
 setuptools.setup(
     name='typhoonae.redis',
-    version='0.1.0a1',
+    version='0.1.0b1',
     author="Tobias Rodaebel",
     author_email="tobias dot rodaebel at googlemail dot com",
     description="Typhoon App Engine Redis Datastore.",
@@ -37,7 +37,7 @@ setuptools.setup(
     license="Apache License 2.0",
     keywords=["gae", "appengine", "redis", "datastore", "typhoonae", "tae"],
     classifiers=[
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 4 - Beta',
         'Environment :: Web Environment',
         'Intended Audience :: Developers',
         'License :: OSI Approved :: Apache Software License',
