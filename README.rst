@@ -62,7 +62,10 @@ an additional option:
 
   $ bin/dev_appserver --use_redis parts/google_appengine/demos/guestbook/
 
-A Redis server should be listening on port 6379.
+Important: The Redis server must be listening on port 6379.
+
+The Datastore Redis stub also supports the SDK's bulkloader. Thus it should be
+possible to restore downloaded data into your local running application.
 
 
 Contributing
@@ -72,3 +75,11 @@ Since the TyphoonAE project uses Mercurial as SCM, you can easily create a
 clone of it on http://code.google.com/p/typhoonae/source/clones?repo=redis.
 
 Visit the project page http://typhoonae.googlecode.com for further information.
+
+Feel free to join the TyphoonAE Discussion Group:
+
+  http://groups.google.com/group/typhoonae
+
+Report issues here:
+
+  http://code.google.com/p/typhoonae/issues
