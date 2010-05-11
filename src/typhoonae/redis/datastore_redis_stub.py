@@ -37,7 +37,6 @@ from google.appengine.runtime import apiproxy_errors
 import hashlib
 import indexes
 import logging
-import re
 import redis
 import string
 import sys
