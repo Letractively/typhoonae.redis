@@ -160,7 +160,7 @@ class DatastoreRedisTestCase(DatastoreRedisTestCaseBase):
         """Inititalizes an entity_pb.Reference from a Redis key."""
 
         key = self.stub._GetKeyForRedisKey(
-            u'test!Foo\x08\t0000000000002\bBar\x08bar')
+            u'test!Foo\x08\t0000000000002\x07Bar\x08bar')
 
         self.assertEqual(
             datastore_types.Key.from_path(
@@ -182,7 +182,7 @@ class DatastoreRedisTestCase(DatastoreRedisTestCaseBase):
         elem.set_id(2)
 
         self.assertEqual(
-            u'test!Foo\x08\t0000000000001\bBar\x08\t0000000000002',
+            u'test!Foo\x08\t0000000000001\x07Bar\x08\t0000000000002',
             self.stub._GetRedisKeyForKey(ref))
 
     def testPutGetDelete(self):

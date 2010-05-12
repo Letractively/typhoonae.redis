@@ -56,7 +56,7 @@ _MAX_QUERY_COMPONENTS = 100
 _MAX_TIMEOUT          = 30
 
 _CURSOR_CONCAT_STR = '!CURSOR!'
-_PATH_CONCAT_STR = '\b'
+_PATH_CONCAT_STR = '\x07'
 
 _DATASTORE_OPERATORS = {
     datastore_pb.Query_Filter.LESS_THAN:             '<',
