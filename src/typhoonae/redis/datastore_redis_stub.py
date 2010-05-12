@@ -56,6 +56,7 @@ _MAX_QUERY_COMPONENTS = 100
 _MAX_TIMEOUT          = 30
 
 _CURSOR_CONCAT_STR = '!CURSOR!'
+_PATH_CONCAT_STR = '\b'
 
 _DATASTORE_OPERATORS = {
     datastore_pb.Query_Filter.LESS_THAN:             '<',
@@ -539,7 +540,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
                 e += '\x08\t' + str(elem.id()).zfill(13)
             path.append(e)
         map(add_elem_to_path, key.path().element_list())
-        return "%s!%s" % (key.app(), "/".join(path))
+        return "%s!%s" % (key.app(), _PATH_CONCAT_STR.join(path))
 
     def _GetKeyForRedisKey(self, key):
         """Return a unique key.
@@ -550,7 +551,7 @@ class DatastoreRedisStub(apiproxy_stub.APIProxyStub):
         Returns:
             A datastore_types.Key instance.
         """
-        path = key[len(self.__app_id)+1:].split('/')
+        path = key[len(self.__app_id)+1:].split(_PATH_CONCAT_STR)
         items = []
 
         for elem in path:
