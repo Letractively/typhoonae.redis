@@ -5,11 +5,11 @@ from setuptools import setup, find_packages
 
 
 setup(
-    name='redisadmin',
+    name='sampleapp',
     version='1',
     author="Tobias Rodaebel",
     author_email="tobias dot rodaebel at googlemail dot com",
-    description="TyphoonAE Redis Datastore Admin Application .",
+    description="TyphoonAE Redis Datastore Sample Application .",
     long_description=(),
     license="Apache License 2.0",
     keywords=["appengine", "gae", "typhoonae", "wsgi", "redis"],
@@ -24,9 +24,9 @@ setup(
         'Topic :: Internet :: WWW/HTTP :: WSGI :: Application',
         ],
     url='',
-    packages=find_packages(os.sep.join(['src', 'redisadmin'])),
+    packages=find_packages(os.sep.join(['src', 'sampleapp'])),
     include_package_data=True,
-    package_dir={'': os.sep.join(['src', 'redisadmin'])},
+    package_dir={'': os.sep.join(['src', 'sampleapp'])},
     install_requires=[
         'setuptools',
         ],
